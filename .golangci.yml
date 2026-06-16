@@ -34,4 +34,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/ninoverse/claude-mit-go-template
+        - github.com/nicolapasqua99/genkit-proxy

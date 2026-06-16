@@ -1,0 +1,37 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # `standard` is golangci-lint's curated default set (errcheck, govet,
+  # ineffassign, staticcheck, unused). The extras below are listed explicitly
+  # so this template documents exactly which lints are on.
+  default: standard
+  enable:
+    - errcheck     # every returned error is handled
+    - govet        # go vet
+    - staticcheck  # subsumes the old gosimple + stylecheck
+    - ineffassign  # ineffectual assignments
+    - unused       # unused code
+    - revive       # golint successor: exported-symbol doc checks
+    - misspell     # common misspellings
+  settings:
+    revive:
+      rules:
+        - name: exported          # exported identifiers need a doc comment
+        - name: package-comments  # each package needs a package comment
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck  # relax unchecked-error noise in tests
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/ninoverse/claude-mit-go-template

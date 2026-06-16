@@ -1,0 +1,23 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/bin/
+/dist/
+
+# Test & coverage output
+*.test
+*.out
+coverage.txt
+
+# Go workspace file (this template is a single module — no go.work)
+go.work
+go.work.sum
+
+# air live-reload working dir
+/tmp/
+
+# Editor / OS
+.DS_Store

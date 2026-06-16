@@ -1,0 +1,24 @@
+# VCS & CI
+.git
+.github
+
+# Claude Code config & project docs
+.claude
+*.md
+
+# Build / test artifacts
+bin/
+dist/
+tmp/
+coverage.txt
+*.test
+*.out
+
+# Unused Go workspace files
+go.work
+go.work.sum
+
+# Files not needed inside the image
+Dockerfile
+.dockerignore
+.air.toml

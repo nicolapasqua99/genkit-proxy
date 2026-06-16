@@ -1,0 +1,101 @@
+name: Bump Version and Tag
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  bump-and-tag:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Generate an installation token using your GitHub App credentials
+      - name: Generate Token from GitHub App
+        id: get_workflow_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      # 2. Checkout the repository using the App Token instead of GITHUB_TOKEN.
+      #    fetch-depth: 0 pulls full history + all tags so we can find the latest version.
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.get_workflow_token.outputs.token }}
+
+      - name: Check go.mod exists
+        id: pkg
+        run: |
+          if [ ! -f go.mod ]; then
+            echo "go.mod not found; skipping version bump."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Determine bump type from Commit Message
+        id: bump
+        if: steps.pkg.outputs.skip == 'false'
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          msg=$(echo "$COMMIT_MSG" | head -n 1)
+          bump="skip"
+
+          echo "Analyzing commit subject: $msg"
+
+          # 1. Major (Breaking Change: explicit ! or BREAKING CHANGE anywhere in the message)
+          if [[ "$msg" =~ ^[a-z]+(\([a-z0-9_-]+\))?!: ]] || [[ "$COMMIT_MSG" == *"BREAKING CHANGE"* ]]; then
+            bump="major"
+          # 2. Minor (New features)
+          elif [[ "$msg" =~ ^feat(\([a-z0-9_-]+\))?: ]]; then
+            bump="minor"
+          # 3. Patch (Fixes, Perf, Refactor, and other changes that don't alter user behavior but merit a version bump)
+          elif [[ "$msg" =~ ^(fix|perf|refactor|revert|style|chore|docs)(\([a-z0-9_-]+\))?: ]]; then
+            bump="patch"
+          fi
+
+          echo "Computed bump=$bump for commit message."
+          echo "type=$bump" >> "$GITHUB_OUTPUT"
+
+      - name: Compute next version
+        id: ver
+        if: steps.pkg.outputs.skip == 'false' && steps.bump.outputs.type != 'skip'
+        run: |
+          # Go modules are versioned by SemVer git tags (vMAJOR.MINOR.PATCH), not by a
+          # field in go.mod, so we derive the next version from the latest existing tag.
+          latest=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -n 1)
+          if [ -z "$latest" ]; then
+            latest="v0.0.0"
+          fi
+          echo "Latest tag: $latest"
+
+          IFS='.' read -r major minor patch <<< "${latest#v}"
+
+          case "${{ steps.bump.outputs.type }}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+
+          new_version="v${major}.${minor}.${patch}"
+          echo "Next version: $new_version"
+          echo "version=$new_version" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and Push
+        if: steps.pkg.outputs.skip == 'false' && steps.bump.outputs.type != 'skip'
+        env:
+          GIT_TAG: ${{ steps.ver.outputs.version }}
+        run: |
+          if git rev-parse "$GIT_TAG" >/dev/null 2>&1; then
+            echo "Tag $GIT_TAG already exists; skipping."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$GIT_TAG" -m "chore: release $GIT_TAG"
+          git push origin "$GIT_TAG"

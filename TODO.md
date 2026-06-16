@@ -4,11 +4,46 @@ Roadmap for the Genkit AI proxy. The current service covers the core: per-reques
 provider routing by model prefix, `Authorization: Bearer` credential injection, validation,
 and a single-turn `POST /v1/generate`. The items below are deferred, grouped by priority.
 
-> **Build note:** the `govulncheck` and `go-licenses` gates could not run in the build
-> sandbox (network/tooling restrictions) and are expected to run in CI.
+> **Build note:** there is currently **no CI workflow** running the quality gates.
+> `golangci-lint`, `go vet`, the race tests, `govulncheck`, and `go-licenses` run only
+> locally; the **CI quality gate** item in Tier 1 tracks wiring them up so they actually
+> run on every PR (today nothing does).
+
+## Tier 0 — Correctness gaps (closest to bugs; do first)
+
+- [ ] **Upstream error classification** — `internal/proxy/proxy.go` `statusFor` collapses
+  every non-validation error to `502`. A caller's bad/expired key, a provider `429`, a hung
+  upstream, and an unknown model all return `502`. Map provider auth failures → `401/403`,
+  rate-limit → `429` (with `Retry-After`), timeout/deadline → `504`, model-not-found →
+  `404/400`. Requires typing the error in `generator.go`/`errors.go`. *Why:* a `502` tells a
+  caller "our fault" when the usual cause is their own invalid key.
+- [ ] **Sanitize upstream error text** *(security)* — `writeError(w, …, err.Error())` returns
+  raw provider/Genkit error strings to the caller, which can leak internal details in a
+  multi-tenant gateway. Return categorized messages to the client; keep the detail in
+  server-side logs only.
+- [ ] **Panic-recovery middleware** — `cmd/app/main.go` has no `recover()`. A plugin or
+  Genkit panic drops the connection instead of returning a clean `500` JSON. Wrap the mux in
+  a recover middleware (also the natural home for the structured-logging and request-ID
+  items below).
+- [ ] **Empty-model-segment validation** — `internal/proxy/request.go` / `router.go`:
+  `"googleai/"` passes `Validate()` (the provider matches, the model part is empty) and then
+  fails upstream as a `502`. Require a non-empty model segment after the provider prefix so it
+  is rejected as a `400`.
+- [ ] **Case-insensitive bearer scheme** — `internal/proxy/proxy.go` `bearerToken` matches
+  `"Bearer "` case-sensitively, but RFC 7235 auth schemes are case-insensitive, so a valid
+  `"bearer <token>"` is rejected `401`. Compare the scheme case-insensitively.
+- [ ] **Empty / safety-blocked output** — `internal/proxy/generator.go`: `resp.Text()` can be
+  `""` (safety block, or a response carrying only tool-call/non-text parts). The caller cannot
+  distinguish "model declined" from "empty". Surface the finish/block reason — couples with the
+  Tier 2 usage + finish-reason item.
 
 ## Tier 1 — Production hardening
 
+- [ ] **CI quality gate** — add `.github/workflows/ci.yml` running `go build` /
+  `golangci-lint run` / `go vet` / `gotestsum -race` / `govulncheck` / `go-licenses` on pull
+  requests and pushes, and make the auto-tag (`bump-version.yml`) / deploy (`release.yml`)
+  path depend on it. *Why:* today every push to `main` auto-tags and every tag auto-deploys to
+  Cloud Run with **no** test/lint/vuln gate — untested code ships straight to production.
 - [ ] **Graceful shutdown** — `cmd/app/main.go`: use `signal.NotifyContext(ctx,
   os.Interrupt, syscall.SIGTERM)`, run `ListenAndServe` in a goroutine, and call
   `srv.Shutdown(ctx)` on signal. *Why:* Cloud Run sends `SIGTERM` before reaping the
@@ -18,6 +53,17 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   hung provider currently occupies a goroutine until the 120s `WriteTimeout`.
 - [ ] **Structured logging** — add an `slog` middleware around the mux in `cmd/app`:
   method, path, status, latency, model, request ID. **Never log the bearer token.**
+- [ ] **Request ID propagation** — accept an inbound `X-Request-ID` or generate one; echo it
+  in the response header and thread it through the structured logs. *Why:* correlate a caller
+  request with its upstream call and log line.
+- [ ] **Metrics** — expose `/metrics` (OpenTelemetry / Prometheus): request count, latency
+  histogram, token counters, error rate by provider and status. Genkit already pulls in the
+  OTel dependencies.
+- [ ] **Readiness + build/version endpoints** — add `/readyz` and `/version` (git SHA / build
+  time via `-ldflags -X`). *Why:* `/healthz` is liveness-only; ops needs to confirm what's
+  deployed.
+- [ ] **Env-configurable server timeouts** — `cmd/app/main.go` hardcodes the Read / Write /
+  Idle timeouts; make them (and the per-request timeout above) env-driven, and validate `PORT`.
 
 ## Tier 2 — Feature surface
 
@@ -27,19 +73,38 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   for metering/billing.
 - [ ] **Generation config passthrough** — add `MaxOutputTokens` / `TopP` / `TopK` /
   `StopSequences` to `GenerateRequest`, mapped onto `ai.GenerationCommonConfig` (already
-  carries these fields).
+  carries these fields). Note **provider-specific bounds**: the generic temperature `0–2`
+  already passes e.g. `1.5` to Anthropic (max `1.0`), which the provider rejects as a `502`.
+- [ ] **Structured / JSON output** — pass an output schema / response format through
+  `ai.WithOutputType` so callers can request JSON mode. *Why:* the proxy returns plain text
+  only, which blocks any app that needs machine-parseable output.
 - [ ] **Streaming (SSE)** — new `POST /v1/generate/stream` backed by
   `genkit.GenerateStream`, emitting `text/event-stream` with `http.Flusher`. Biggest
   chat-UX win.
 - [ ] **Multi-turn chat** — optional `Messages []Message` (role/content) on
   `GenerateRequest`, mapped via `ai.WithMessages`, alongside the existing `userMessage`
   field.
+- [ ] **Multimodal input** — `UserMessage string` precludes images/files. Design the
+  `Messages` field above to carry typed parts (text / media), not just strings, so vision and
+  document inputs are possible.
+- [ ] **Tool / function calling** — known limitation; agentic callers need multi-step
+  tool round-trips. Larger design effort; named here so it isn't lost.
+- [ ] **Vertex AI provider** — only `googleai` is wired in `internal/proxy/router.go`; add the
+  `vertexai` plugin for the enterprise GCP auth path, and document the supported-provider
+  matrix.
 
 ## Tier 3 — Scaling / governance / security
 
 - [ ] **Genkit instance cache** — cache instances keyed by a hash of (provider, key) to
   avoid a fresh `genkit.Init` per request. Note the in-memory-credential tradeoff.
+- [ ] **`genkit.Init`-per-request global-state audit** — verify that repeated, concurrent
+  `genkit.Init` calls do not leak registries/goroutines or register global telemetry side
+  effects. *Why:* robustness prerequisite for, and partly mooted by, the instance cache above.
 - [ ] **Model allowlist / per-tenant policy** — restrict which models a caller may invoke.
 - [ ] **Decoupled gateway auth** — authenticate the tenant with its own key and resolve the
   provider key from Secret Manager, instead of the current raw pass-through.
-- [ ] **Rate limiting, CORS, retry-with-backoff** on transient upstream errors.
+- [ ] **Rate limiting, CORS, retry-with-backoff** on transient upstream errors. Fold the abuse
+  surface (the 1 MiB body cap and request timeouts) into the rate-limiting story.
+- [ ] **Testing seam for `GenkitGenerator`** — `GenkitGenerator.Generate` is wholly untested
+  (it needs real keys/network). Introduce a seam so error-classification and option-mapping can
+  be unit-tested against a fake provider.

@@ -1,4 +1,4 @@
-module github.com/ninoverse/claude-mit-go-template
+module github.com/nicolapasqua99/genkit-proxy
 
 go 1.25
 

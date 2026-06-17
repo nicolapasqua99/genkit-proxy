@@ -14,11 +14,11 @@ func Recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tracked := &statusWriter{ResponseWriter: w}
 		defer func() {
-			if rec := recover(); rec != nil {
-				if rec == http.ErrAbortHandler {
-					panic(rec)
+			if recovered := recover(); recovered != nil {
+				if recovered == http.ErrAbortHandler {
+					panic(recovered)
 				}
-				log.Printf("panic recovered: %v", rec)
+				log.Printf("panic recovered: %v", recovered)
 				if !tracked.wroteHeader {
 					writeJSON(tracked, http.StatusInternalServerError, errorBody{Error: "internal server error"})
 				}

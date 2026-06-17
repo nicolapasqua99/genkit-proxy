@@ -12,19 +12,19 @@ import (
 // semantics.
 func Recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sw := &statusWriter{ResponseWriter: w}
+		tracked := &statusWriter{ResponseWriter: w}
 		defer func() {
 			if rec := recover(); rec != nil {
 				if rec == http.ErrAbortHandler {
 					panic(rec)
 				}
 				log.Printf("panic recovered: %v", rec)
-				if !sw.wroteHeader {
-					writeJSON(sw, http.StatusInternalServerError, errorBody{Error: "internal server error"})
+				if !tracked.wroteHeader {
+					writeJSON(tracked, http.StatusInternalServerError, errorBody{Error: "internal server error"})
 				}
 			}
 		}()
-		next.ServeHTTP(sw, r)
+		next.ServeHTTP(tracked, r)
 	})
 }
 

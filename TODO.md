@@ -11,28 +11,28 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
 
 ## Tier 0 — Correctness gaps (closest to bugs; do first)
 
-- [ ] **Upstream error classification** — `internal/proxy/proxy.go` `statusFor` collapses
+- [x] **Upstream error classification** — `internal/proxy/proxy.go` `statusFor` collapses
   every non-validation error to `502`. A caller's bad/expired key, a provider `429`, a hung
   upstream, and an unknown model all return `502`. Map provider auth failures → `401/403`,
   rate-limit → `429` (with `Retry-After`), timeout/deadline → `504`, model-not-found →
   `404/400`. Requires typing the error in `generator.go`/`errors.go`. *Why:* a `502` tells a
   caller "our fault" when the usual cause is their own invalid key.
-- [ ] **Sanitize upstream error text** *(security)* — `writeError(w, …, err.Error())` returns
+- [x] **Sanitize upstream error text** *(security)* — `writeError(w, …, err.Error())` returns
   raw provider/Genkit error strings to the caller, which can leak internal details in a
   multi-tenant gateway. Return categorized messages to the client; keep the detail in
   server-side logs only.
-- [ ] **Panic-recovery middleware** — `cmd/app/main.go` has no `recover()`. A plugin or
+- [x] **Panic-recovery middleware** — `cmd/app/main.go` has no `recover()`. A plugin or
   Genkit panic drops the connection instead of returning a clean `500` JSON. Wrap the mux in
   a recover middleware (also the natural home for the structured-logging and request-ID
   items below).
-- [ ] **Empty-model-segment validation** — `internal/proxy/request.go` / `router.go`:
+- [x] **Empty-model-segment validation** — `internal/proxy/request.go` / `router.go`:
   `"googleai/"` passes `Validate()` (the provider matches, the model part is empty) and then
   fails upstream as a `502`. Require a non-empty model segment after the provider prefix so it
   is rejected as a `400`.
-- [ ] **Case-insensitive bearer scheme** — `internal/proxy/proxy.go` `bearerToken` matches
+- [x] **Case-insensitive bearer scheme** — `internal/proxy/proxy.go` `bearerToken` matches
   `"Bearer "` case-sensitively, but RFC 7235 auth schemes are case-insensitive, so a valid
   `"bearer <token>"` is rejected `401`. Compare the scheme case-insensitively.
-- [ ] **Empty / safety-blocked output** — `internal/proxy/generator.go`: `resp.Text()` can be
+- [x] **Empty / safety-blocked output** — `internal/proxy/generator.go`: `resp.Text()` can be
   `""` (safety block, or a response carrying only tool-call/non-text parts). The caller cannot
   distinguish "model declined" from "empty". Surface the finish/block reason — couples with the
   Tier 2 usage + finish-reason item.

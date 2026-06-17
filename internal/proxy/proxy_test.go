@@ -23,10 +23,10 @@ type fakeGenerator struct {
 	gotReq GenerateRequest
 }
 
-func (f *fakeGenerator) Generate(_ context.Context, req GenerateRequest, apiKey string) (GenerateResponse, error) {
-	f.gotKey = apiKey
-	f.gotReq = req
-	return f.resp, f.err
+func (fakeGen *fakeGenerator) Generate(_ context.Context, req GenerateRequest, apiKey string) (GenerateResponse, error) {
+	fakeGen.gotKey = apiKey
+	fakeGen.gotReq = req
+	return fakeGen.resp, fakeGen.err
 }
 
 func TestHandlerServeHTTP(t *testing.T) {

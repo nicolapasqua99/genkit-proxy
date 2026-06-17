@@ -108,8 +108,8 @@ type errorBody struct {
 	Error string `json:"error"`
 }
 
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, errorBody{Error: msg})
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, errorBody{Error: message})
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

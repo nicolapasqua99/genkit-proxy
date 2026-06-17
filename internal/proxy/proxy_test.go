@@ -17,15 +17,15 @@ import (
 
 // fakeGenerator records what it was called with and returns canned results.
 type fakeGenerator struct {
-	resp   GenerateResponse
-	err    error
-	gotKey string
-	gotReq GenerateRequest
+	resp       GenerateResponse
+	err        error
+	gotKey     string
+	gotRequest GenerateRequest
 }
 
 func (fakeGen *fakeGenerator) Generate(_ context.Context, req GenerateRequest, apiKey string) (GenerateResponse, error) {
 	fakeGen.gotKey = apiKey
-	fakeGen.gotReq = req
+	fakeGen.gotRequest = req
 	return fakeGen.resp, fakeGen.err
 }
 

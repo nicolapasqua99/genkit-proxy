@@ -2,7 +2,7 @@ package proxy
 
 import "testing"
 
-func temp(f float64) *float64 { return &f }
+func temp(value float64) *float64 { return &value }
 
 func TestGenerateRequestValidate(t *testing.T) {
 	cases := []struct {

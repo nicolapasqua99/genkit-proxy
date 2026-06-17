@@ -26,7 +26,7 @@ func (GenkitGenerator) Generate(ctx context.Context, req GenerateRequest, apiKey
 		return GenerateResponse{}, err
 	}
 
-	g := genkit.Init(ctx, genkit.WithPlugins(plugin))
+	genkitApp := genkit.Init(ctx, genkit.WithPlugins(plugin))
 
 	opts := []ai.GenerateOption{
 		ai.WithModelName(req.ModelName),
@@ -39,7 +39,7 @@ func (GenkitGenerator) Generate(ctx context.Context, req GenerateRequest, apiKey
 		opts = append(opts, ai.WithConfig(&ai.GenerationCommonConfig{Temperature: *req.Temperature}))
 	}
 
-	resp, err := genkit.Generate(ctx, g, opts...)
+	resp, err := genkit.Generate(ctx, genkitApp, opts...)
 	if err != nil {
 		return GenerateResponse{}, fmt.Errorf("generate %q: %w", req.ModelName, err)
 	}

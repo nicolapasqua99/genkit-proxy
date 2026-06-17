@@ -36,8 +36,8 @@ func TestProviderOf(t *testing.T) {
 				return
 			}
 			if testCase.wantValidation {
-				var ve *ValidationError
-				if !errors.As(err, &ve) {
+				var validationErr *ValidationError
+				if !errors.As(err, &validationErr) {
 					t.Errorf("providerOf(%q) error = %v, want *ValidationError", testCase.model, err)
 				}
 			} else {

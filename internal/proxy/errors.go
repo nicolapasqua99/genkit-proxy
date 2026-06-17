@@ -81,9 +81,9 @@ func classify(err error) errCategory {
 	}
 
 	// googleai fallback: raw genai.APIError (value type, value receiver).
-	var ae genai.APIError
-	if errors.As(err, &ae) {
-		return categoryForHTTP(ae.Code)
+	var genaiApiErr genai.APIError
+	if errors.As(err, &genaiApiErr) {
+		return categoryForHTTP(genaiApiErr.Code)
 	}
 
 	// openai + anthropic: openai-go typed error (pointer receiver).

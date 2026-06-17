@@ -57,7 +57,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.gen.Generate(r.Context(), req, apiKey)
 	if err != nil {
 		status := statusFor(err)
-		if classify(err) >= catUnauthenticated {
+		if classify(err) >= categoryUnauthenticated {
 			log.Printf("generate failed: model=%q status=%d err=%v", req.ModelName, status, err)
 		}
 		writeError(w, status, safeMessage(err))
@@ -86,17 +86,17 @@ func bearerToken(r *http.Request) (string, error) {
 // statusFor maps a Generator error to an HTTP status code.
 func statusFor(err error) int {
 	switch classify(err) {
-	case catValidation, catUnsupported:
+	case categoryValidation, categoryUnsupported:
 		return http.StatusBadRequest
-	case catUnauthenticated:
+	case categoryUnauthenticated:
 		return http.StatusUnauthorized
-	case catPermissionDenied:
+	case categoryPermissionDenied:
 		return http.StatusForbidden
-	case catRateLimit:
+	case categoryRateLimit:
 		return http.StatusTooManyRequests
-	case catTimeout:
+	case categoryTimeout:
 		return http.StatusGatewayTimeout
-	case catNotFound:
+	case categoryNotFound:
 		return http.StatusNotFound
 	default:
 		return http.StatusBadGateway

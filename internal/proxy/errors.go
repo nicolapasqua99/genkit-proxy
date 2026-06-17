@@ -36,14 +36,14 @@ func (e *ValidationError) Error() string {
 type errCategory int
 
 const (
-	catValidation       errCategory = iota // caller-caused; safe to echo verbatim
-	catUnsupported                         // caller-caused; safe to echo verbatim
-	catUnauthenticated                     // upstream rejected credentials (401)
-	catPermissionDenied                    // upstream denied access (403)
-	catRateLimit                           // upstream rate-limited (429)
-	catTimeout                             // upstream deadline / cancel (504)
-	catNotFound                            // model or resource not found (404)
-	catUpstream                            // any other upstream failure (502)
+	categoryValidation       errCategory = iota // caller-caused; safe to echo verbatim
+	categoryUnsupported                         // caller-caused; safe to echo verbatim
+	categoryUnauthenticated                     // upstream rejected credentials (401)
+	categoryPermissionDenied                    // upstream denied access (403)
+	categoryRateLimit                           // upstream rate-limited (429)
+	categoryTimeout                             // upstream deadline / cancel (504)
+	categoryNotFound                            // model or resource not found (404)
+	categoryUpstream                            // any other upstream failure (502)
 )
 
 // classify maps a Generator error to an errCategory. It prefers typed
@@ -53,13 +53,13 @@ func classify(err error) errCategory {
 	var validationErr *ValidationError
 	switch {
 	case errors.As(err, &validationErr):
-		return catValidation
+		return categoryValidation
 	case errors.Is(err, ErrUnsupportedProvider):
-		return catUnsupported
+		return categoryUnsupported
 	}
 
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return catTimeout
+		return categoryTimeout
 	}
 
 	// googleai: genkit-canonical typed status.
@@ -67,15 +67,15 @@ func classify(err error) errCategory {
 	if errors.As(err, &genkitErr) {
 		switch genkitErr.Status {
 		case core.UNAUTHENTICATED:
-			return catUnauthenticated
+			return categoryUnauthenticated
 		case core.PERMISSION_DENIED:
-			return catPermissionDenied
+			return categoryPermissionDenied
 		case core.RESOURCE_EXHAUSTED:
-			return catRateLimit
+			return categoryRateLimit
 		case core.DEADLINE_EXCEEDED:
-			return catTimeout
+			return categoryTimeout
 		case core.NOT_FOUND:
-			return catNotFound
+			return categoryNotFound
 		}
 		return categoryForHTTP(core.HTTPStatusCode(genkitErr.Status))
 	}
@@ -92,24 +92,24 @@ func classify(err error) errCategory {
 		return categoryForHTTP(openaiApiErr.StatusCode)
 	}
 
-	return catUpstream
+	return categoryUpstream
 }
 
 // categoryForHTTP maps a provider HTTP status code to an errCategory.
 func categoryForHTTP(code int) errCategory {
 	switch code {
 	case http.StatusUnauthorized:
-		return catUnauthenticated
+		return categoryUnauthenticated
 	case http.StatusForbidden:
-		return catPermissionDenied
+		return categoryPermissionDenied
 	case http.StatusTooManyRequests:
-		return catRateLimit
+		return categoryRateLimit
 	case http.StatusGatewayTimeout, http.StatusRequestTimeout:
-		return catTimeout
+		return categoryTimeout
 	case http.StatusNotFound:
-		return catNotFound
+		return categoryNotFound
 	default:
-		return catUpstream
+		return categoryUpstream
 	}
 }
 
@@ -118,17 +118,17 @@ func categoryForHTTP(code int) errCategory {
 // so internal details are not leaked to the caller.
 func safeMessage(err error) string {
 	switch classify(err) {
-	case catValidation, catUnsupported:
+	case categoryValidation, categoryUnsupported:
 		return err.Error()
-	case catUnauthenticated:
+	case categoryUnauthenticated:
 		return "upstream provider rejected the supplied credentials"
-	case catPermissionDenied:
+	case categoryPermissionDenied:
 		return "upstream provider denied access"
-	case catRateLimit:
+	case categoryRateLimit:
 		return "upstream provider rate limit exceeded"
-	case catTimeout:
+	case categoryTimeout:
 		return "upstream provider request timed out"
-	case catNotFound:
+	case categoryNotFound:
 		return "requested model was not found"
 	default:
 		return "upstream provider error"

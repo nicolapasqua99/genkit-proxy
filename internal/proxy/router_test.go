@@ -63,11 +63,11 @@ func TestPluginFor(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			p, err := pluginFor(testCase.model, "test-key")
+			plugin, err := pluginFor(testCase.model, "test-key")
 			if (err != nil) != testCase.wantErr {
 				t.Fatalf("pluginFor(%q) error = %v, wantErr %v", testCase.model, err, testCase.wantErr)
 			}
-			if !testCase.wantErr && p == nil {
+			if !testCase.wantErr && plugin == nil {
 				t.Errorf("pluginFor(%q) returned nil plugin", testCase.model)
 			}
 		})

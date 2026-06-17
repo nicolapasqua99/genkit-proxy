@@ -20,8 +20,13 @@ type GenerateRequest struct {
 type GenerateResponse struct {
 	// Model echoes the model that served the request.
 	Model string `json:"model"`
-	// Output is the generated text.
+	// Output is the generated text. Empty when the model returned no text
+	// (e.g. a safety block); inspect FinishReason in that case.
 	Output string `json:"output"`
+	// FinishReason is the reason the model stopped generating. Common values:
+	// "stop", "length", "blocked", "interrupted", "other", "unknown".
+	// Omitted when the provider did not report a reason.
+	FinishReason string `json:"finishReason,omitempty"`
 }
 
 // Validate reports the first problem found with the request, or nil when the

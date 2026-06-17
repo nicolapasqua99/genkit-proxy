@@ -63,7 +63,7 @@ func TestRecover(t *testing.T) {
 		var repanicked bool
 		func() {
 			defer func() {
-				if r := recover(); r == http.ErrAbortHandler {
+				if recovered := recover(); recovered == http.ErrAbortHandler {
 					repanicked = true
 				}
 			}()

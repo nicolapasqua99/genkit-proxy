@@ -50,9 +50,9 @@ const (
 // extraction (core.GenkitError status, provider SDK error codes, context
 // sentinels) over string matching.
 func classify(err error) errCategory {
-	var ve *ValidationError
+	var validationErr *ValidationError
 	switch {
-	case errors.As(err, &ve):
+	case errors.As(err, &validationErr):
 		return catValidation
 	case errors.Is(err, ErrUnsupportedProvider):
 		return catUnsupported

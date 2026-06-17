@@ -11,7 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -30,7 +30,8 @@ var (
 func main() {
 	cfg, err := loadConfig()
 	if err != nil {
-		log.Fatalf("config error: %v", err)
+		slog.Error("config error", "err", err)
+		os.Exit(1)
 	}
 
 	handler := proxy.NewHandler(proxy.NewGenkitGenerator(cfg.generateTimeout))
@@ -53,7 +54,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.port,
-		Handler:           proxy.Recover(mux),
+		Handler:           proxy.Recover(proxy.RequestID(proxy.Logger(mux))),
 		ReadHeaderTimeout: cfg.readHeaderTimeout,
 		ReadTimeout:       cfg.readTimeout,
 		WriteTimeout:      cfg.writeTimeout,
@@ -64,9 +65,10 @@ func main() {
 	defer stop()
 
 	go func() {
-		log.Printf("genkit-proxy listening on :%s", cfg.port)
+		slog.Info("genkit-proxy listening", "port", cfg.port)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("server error: %v", err)
+			slog.Error("server error", "err", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -76,6 +78,6 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("shutdown error: %v", err)
+		slog.Error("shutdown error", "err", err)
 	}
 }

@@ -12,14 +12,14 @@ func TestRecover(t *testing.T) {
 		handler := Recover(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			panic("something went wrong")
 		}))
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
 
-		if rec.Code != http.StatusInternalServerError {
-			t.Fatalf("status = %d, want 500", rec.Code)
+		if recorder.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", recorder.Code)
 		}
 		var body errorBody
-		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
 		if body.Error != "internal server error" {
@@ -33,12 +33,12 @@ func TestRecover(t *testing.T) {
 			_, _ = w.Write([]byte("partial"))
 			panic("late panic")
 		}))
-		rec := httptest.NewRecorder()
+		recorder := httptest.NewRecorder()
 		// Must not panic out of ServeHTTP.
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
 
-		if rec.Code != http.StatusOK {
-			t.Errorf("status = %d, want 200 (headers already sent)", rec.Code)
+		if recorder.Code != http.StatusOK {
+			t.Errorf("status = %d, want 200 (headers already sent)", recorder.Code)
 		}
 	})
 
@@ -46,11 +46,11 @@ func TestRecover(t *testing.T) {
 		handler := Recover(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
 
-		if rec.Code != http.StatusOK {
-			t.Errorf("status = %d, want 200", rec.Code)
+		if recorder.Code != http.StatusOK {
+			t.Errorf("status = %d, want 200", recorder.Code)
 		}
 	})
 
@@ -58,7 +58,7 @@ func TestRecover(t *testing.T) {
 		handler := Recover(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			panic(http.ErrAbortHandler)
 		}))
-		rec := httptest.NewRecorder()
+		recorder := httptest.NewRecorder()
 
 		var repanicked bool
 		func() {
@@ -67,7 +67,7 @@ func TestRecover(t *testing.T) {
 					repanicked = true
 				}
 			}()
-			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
 		}()
 
 		if !repanicked {

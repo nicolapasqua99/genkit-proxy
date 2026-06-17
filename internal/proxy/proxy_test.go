@@ -191,14 +191,14 @@ func TestHandlerServeHTTP(t *testing.T) {
 			if testCase.auth != "" {
 				req.Header.Set("Authorization", testCase.auth)
 			}
-			rec := httptest.NewRecorder()
+			recorder := httptest.NewRecorder()
 
-			handler.ServeHTTP(rec, req)
+			handler.ServeHTTP(recorder, req)
 
-			if rec.Code != testCase.wantStatus {
-				t.Fatalf("status = %d, want %d (body %s)", rec.Code, testCase.wantStatus, rec.Body.String())
+			if recorder.Code != testCase.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", recorder.Code, testCase.wantStatus, recorder.Body.String())
 			}
-			body := rec.Body.String()
+			body := recorder.Body.String()
 			if testCase.wantBodyContains != "" && !strings.Contains(body, testCase.wantBodyContains) {
 				t.Errorf("body %q does not contain %q", body, testCase.wantBodyContains)
 			}
@@ -209,7 +209,7 @@ func TestHandlerServeHTTP(t *testing.T) {
 				return
 			}
 			var got GenerateResponse
-			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
 				t.Fatalf("decode response: %v", err)
 			}
 			if got != testCase.genResp {

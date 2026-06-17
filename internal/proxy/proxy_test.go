@@ -186,14 +186,14 @@ func TestHandlerServeHTTP(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			fake := &fakeGenerator{resp: testCase.genResp, err: testCase.genErr}
-			h := NewHandler(fake)
+			handler := NewHandler(fake)
 			req := httptest.NewRequest(testCase.method, "/v1/generate", strings.NewReader(testCase.body))
 			if testCase.auth != "" {
 				req.Header.Set("Authorization", testCase.auth)
 			}
 			rec := httptest.NewRecorder()
 
-			h.ServeHTTP(rec, req)
+			handler.ServeHTTP(rec, req)
 
 			if rec.Code != testCase.wantStatus {
 				t.Fatalf("status = %d, want %d (body %s)", rec.Code, testCase.wantStatus, rec.Body.String())

@@ -223,17 +223,17 @@ func TestHandlerServeHTTP(t *testing.T) {
 }
 
 func TestStatusFor(t *testing.T) {
-	oeUnauth := &openai.Error{
+	openaiApiErrUnauth := &openai.Error{
 		StatusCode: http.StatusUnauthorized,
 		Request:    httptest.NewRequest(http.MethodPost, "/", nil),
 		Response:   &http.Response{StatusCode: http.StatusUnauthorized},
 	}
-	oeForbidden := &openai.Error{
+	openaiApiErrForbidden := &openai.Error{
 		StatusCode: http.StatusForbidden,
 		Request:    httptest.NewRequest(http.MethodPost, "/", nil),
 		Response:   &http.Response{StatusCode: http.StatusForbidden},
 	}
-	oe429 := &openai.Error{
+	openaiApiErr429 := &openai.Error{
 		StatusCode: http.StatusTooManyRequests,
 		Request:    httptest.NewRequest(http.MethodPost, "/", nil),
 		Response:   &http.Response{StatusCode: http.StatusTooManyRequests},
@@ -256,9 +256,9 @@ func TestStatusFor(t *testing.T) {
 		{"genai apierror 401", genai.APIError{Code: http.StatusUnauthorized}, http.StatusUnauthorized},
 		{"genai apierror 403", genai.APIError{Code: http.StatusForbidden}, http.StatusForbidden},
 		{"genai apierror 429", genai.APIError{Code: http.StatusTooManyRequests}, http.StatusTooManyRequests},
-		{"openai error 401", oeUnauth, http.StatusUnauthorized},
-		{"openai error 403", oeForbidden, http.StatusForbidden},
-		{"openai error 429", oe429, http.StatusTooManyRequests},
+		{"openai error 401", openaiApiErrUnauth, http.StatusUnauthorized},
+		{"openai error 403", openaiApiErrForbidden, http.StatusForbidden},
+		{"openai error 429", openaiApiErr429, http.StatusTooManyRequests},
 		{"unknown error", errors.New("boom"), http.StatusBadGateway},
 	}
 	for _, testCase := range cases {

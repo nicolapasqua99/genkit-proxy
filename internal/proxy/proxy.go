@@ -28,29 +28,29 @@ func NewHandler(gen Generator) *Handler {
 
 // ServeHTTP decodes a GenerateRequest, extracts the bearer credential, routes
 // the request through the Generator, and writes the JSON response.
-func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (handler *Handler) ServeHTTP(writer http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	apiKey, err := bearerToken(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeError(writer, http.StatusUnauthorized, err.Error())
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
+	r.Body = http.MaxBytesReader(writer, r.Body, maxRequestBytes)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 
 	var req GenerateRequest
 	if err := dec.Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		writeError(writer, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
 	if err := req.Validate(); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -60,11 +60,11 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if classify(err) >= categoryUnauthenticated {
 			log.Printf("generate failed: model=%q status=%d err=%v", req.ModelName, status, err)
 		}
-		writeError(w, status, safeMessage(err))
+		writeError(writer, status, safeMessage(err))
 		return
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(writer, http.StatusOK, resp)
 }
 
 // bearerToken extracts the token from an "Authorization: Bearer <token>"
@@ -108,12 +108,12 @@ type errorBody struct {
 	Error string `json:"error"`
 }
 
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, errorBody{Error: message})
+func writeError(writer http.ResponseWriter, status int, message string) {
+	writeJSON(writer, status, errorBody{Error: message})
 }
 
-func writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+func writeJSON(writer http.ResponseWriter, status int, payload any) {
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(status)
+	_ = json.NewEncoder(writer).Encode(payload)
 }

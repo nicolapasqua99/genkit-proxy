@@ -11,8 +11,8 @@ import (
 // changed at that point. Re-panics on http.ErrAbortHandler to preserve stdlib
 // semantics.
 func Recover(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tracked := &statusWriter{ResponseWriter: w}
+	return http.HandlerFunc(func(writer http.ResponseWriter, r *http.Request) {
+		tracked := &statusWriter{ResponseWriter: writer}
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				if recovered == http.ErrAbortHandler {
@@ -35,12 +35,12 @@ type statusWriter struct {
 	wroteHeader bool
 }
 
-func (w *statusWriter) WriteHeader(code int) {
-	w.wroteHeader = true
-	w.ResponseWriter.WriteHeader(code)
+func (writer *statusWriter) WriteHeader(code int) {
+	writer.wroteHeader = true
+	writer.ResponseWriter.WriteHeader(code)
 }
 
-func (w *statusWriter) Write(data []byte) (int, error) {
-	w.wroteHeader = true
-	return w.ResponseWriter.Write(data)
+func (writer *statusWriter) Write(data []byte) (int, error) {
+	writer.wroteHeader = true
+	return writer.ResponseWriter.Write(data)
 }

@@ -23,26 +23,26 @@ func TestProviderOf(t *testing.T) {
 		{"empty model segment", "googleai/", "", true, true},
 		{"whitespace model segment", "googleai/   ", "", true, true},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := providerOf(tc.model)
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("providerOf(%q) error = %v, wantErr %v", tc.model, err, tc.wantErr)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := providerOf(testCase.model)
+			if (err != nil) != testCase.wantErr {
+				t.Fatalf("providerOf(%q) error = %v, wantErr %v", testCase.model, err, testCase.wantErr)
 			}
-			if got != tc.want {
-				t.Errorf("providerOf(%q) = %q, want %q", tc.model, got, tc.want)
+			if got != testCase.want {
+				t.Errorf("providerOf(%q) = %q, want %q", testCase.model, got, testCase.want)
 			}
-			if !tc.wantErr {
+			if !testCase.wantErr {
 				return
 			}
-			if tc.wantValidation {
+			if testCase.wantValidation {
 				var ve *ValidationError
 				if !errors.As(err, &ve) {
-					t.Errorf("providerOf(%q) error = %v, want *ValidationError", tc.model, err)
+					t.Errorf("providerOf(%q) error = %v, want *ValidationError", testCase.model, err)
 				}
 			} else {
 				if !errors.Is(err, ErrUnsupportedProvider) {
-					t.Errorf("providerOf(%q) error = %v, want ErrUnsupportedProvider", tc.model, err)
+					t.Errorf("providerOf(%q) error = %v, want ErrUnsupportedProvider", testCase.model, err)
 				}
 			}
 		})
@@ -61,14 +61,14 @@ func TestPluginFor(t *testing.T) {
 		{"unsupported", "cohere/command", true},
 		{"empty model segment", "googleai/", true},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			p, err := pluginFor(tc.model, "test-key")
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("pluginFor(%q) error = %v, wantErr %v", tc.model, err, tc.wantErr)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			p, err := pluginFor(testCase.model, "test-key")
+			if (err != nil) != testCase.wantErr {
+				t.Fatalf("pluginFor(%q) error = %v, wantErr %v", testCase.model, err, testCase.wantErr)
 			}
-			if !tc.wantErr && p == nil {
-				t.Errorf("pluginFor(%q) returned nil plugin", tc.model)
+			if !testCase.wantErr && p == nil {
+				t.Errorf("pluginFor(%q) returned nil plugin", testCase.model)
 			}
 		})
 	}

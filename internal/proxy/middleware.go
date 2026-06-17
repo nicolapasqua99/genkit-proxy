@@ -40,7 +40,7 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-func (w *statusWriter) Write(b []byte) (int, error) {
+func (w *statusWriter) Write(data []byte) (int, error) {
 	w.wroteHeader = true
-	return w.ResponseWriter.Write(b)
+	return w.ResponseWriter.Write(data)
 }

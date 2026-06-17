@@ -63,9 +63,9 @@ func classify(err error) errCategory {
 	}
 
 	// googleai: genkit-canonical typed status.
-	var ge *core.GenkitError
-	if errors.As(err, &ge) {
-		switch ge.Status {
+	var genkitErr *core.GenkitError
+	if errors.As(err, &genkitErr) {
+		switch genkitErr.Status {
 		case core.UNAUTHENTICATED:
 			return catUnauthenticated
 		case core.PERMISSION_DENIED:
@@ -77,7 +77,7 @@ func classify(err error) errCategory {
 		case core.NOT_FOUND:
 			return catNotFound
 		}
-		return categoryForHTTP(core.HTTPStatusCode(ge.Status))
+		return categoryForHTTP(core.HTTPStatusCode(genkitErr.Status))
 	}
 
 	// googleai fallback: raw genai.APIError (value type, value receiver).

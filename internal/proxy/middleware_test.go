@@ -9,7 +9,7 @@ import (
 
 func TestRecover(t *testing.T) {
 	t.Run("panic before write", func(t *testing.T) {
-		handler := Recover(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		handler := Recover(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 			panic("something went wrong")
 		}))
 		recorder := httptest.NewRecorder()
@@ -28,9 +28,9 @@ func TestRecover(t *testing.T) {
 	})
 
 	t.Run("panic after write", func(t *testing.T) {
-		handler := Recover(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("partial"))
+		handler := Recover(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.WriteHeader(http.StatusOK)
+			_, _ = writer.Write([]byte("partial"))
 			panic("late panic")
 		}))
 		recorder := httptest.NewRecorder()
@@ -43,8 +43,8 @@ func TestRecover(t *testing.T) {
 	})
 
 	t.Run("no panic passthrough", func(t *testing.T) {
-		handler := Recover(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
+		handler := Recover(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.WriteHeader(http.StatusOK)
 		}))
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
@@ -55,7 +55,7 @@ func TestRecover(t *testing.T) {
 	})
 
 	t.Run("abort handler re-panics", func(t *testing.T) {
-		handler := Recover(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		handler := Recover(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 			panic(http.ErrAbortHandler)
 		}))
 		recorder := httptest.NewRecorder()

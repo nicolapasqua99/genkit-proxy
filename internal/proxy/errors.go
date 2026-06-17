@@ -87,9 +87,9 @@ func classify(err error) errCategory {
 	}
 
 	// openai + anthropic: openai-go typed error (pointer receiver).
-	var oe *openai.Error
-	if errors.As(err, &oe) {
-		return categoryForHTTP(oe.StatusCode)
+	var openaiApiErr *openai.Error
+	if errors.As(err, &openaiApiErr) {
+		return categoryForHTTP(openaiApiErr.StatusCode)
 	}
 
 	return catUpstream

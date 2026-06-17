@@ -20,6 +20,8 @@ func TestGenerateRequestValidate(t *testing.T) {
 		{"empty user message", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "  "}, true},
 		{"temperature too high", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", Temperature: temp(2.5)}, true},
 		{"temperature negative", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", Temperature: temp(-0.1)}, true},
+		{"empty model segment", GenerateRequest{ModelName: "googleai/", UserMessage: "hi"}, true},
+		{"whitespace model segment", GenerateRequest{ModelName: "googleai/   ", UserMessage: "hi"}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

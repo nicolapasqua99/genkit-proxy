@@ -21,12 +21,15 @@ const (
 // providerOf extracts and validates the provider prefix of a
 // provider-namespaced model name such as "googleai/gemini-2.5-flash".
 func providerOf(modelName string) (string, error) {
-	provider, _, ok := strings.Cut(modelName, "/")
+	provider, model, ok := strings.Cut(modelName, "/")
 	if !ok || provider == "" {
 		return "", fmt.Errorf("%w: %q is not provider-prefixed", ErrUnsupportedProvider, modelName)
 	}
 	switch provider {
 	case providerGoogleAI, providerOpenAI, providerAnthropic:
+		if strings.TrimSpace(model) == "" {
+			return "", &ValidationError{Field: "modelName", Reason: "missing model after provider prefix"}
+		}
 		return provider, nil
 	default:
 		return "", fmt.Errorf("%w: %q", ErrUnsupportedProvider, provider)

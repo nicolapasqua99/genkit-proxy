@@ -8,7 +8,7 @@ package proxy
 
 import (
 	"encoding/json"
-	"errors"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -56,7 +56,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.gen.Generate(r.Context(), req, apiKey)
 	if err != nil {
-		writeError(w, statusFor(err), err.Error())
+		status := statusFor(err)
+		if classify(err) >= catUnauthenticated {
+			log.Printf("generate failed: model=%q status=%d err=%v", req.ModelName, status, err)
+		}
+		writeError(w, status, safeMessage(err))
 		return
 	}
 
@@ -64,27 +68,36 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // bearerToken extracts the token from an "Authorization: Bearer <token>"
-// header, returning ErrMissingCredentials when it is absent or malformed.
+// header per RFC 7235 (scheme comparison is case-insensitive).
+// Returns ErrMissingCredentials when the header is absent or malformed.
 func bearerToken(r *http.Request) (string, error) {
-	const prefix = "Bearer "
 	header := r.Header.Get("Authorization")
-	if !strings.HasPrefix(header, prefix) {
+	scheme, rest, ok := strings.Cut(header, " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
 		return "", ErrMissingCredentials
 	}
-	token := strings.TrimSpace(strings.TrimPrefix(header, prefix))
+	token := strings.TrimSpace(rest)
 	if token == "" {
 		return "", ErrMissingCredentials
 	}
 	return token, nil
 }
 
-// statusFor maps a Generator error to an HTTP status code. Client-caused
-// errors map to 400; everything else is treated as an upstream failure.
+// statusFor maps a Generator error to an HTTP status code.
 func statusFor(err error) int {
-	var ve *ValidationError
-	switch {
-	case errors.As(err, &ve), errors.Is(err, ErrUnsupportedProvider):
+	switch classify(err) {
+	case catValidation, catUnsupported:
 		return http.StatusBadRequest
+	case catUnauthenticated:
+		return http.StatusUnauthorized
+	case catPermissionDenied:
+		return http.StatusForbidden
+	case catRateLimit:
+		return http.StatusTooManyRequests
+	case catTimeout:
+		return http.StatusGatewayTimeout
+	case catNotFound:
+		return http.StatusNotFound
 	default:
 		return http.StatusBadGateway
 	}

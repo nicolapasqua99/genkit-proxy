@@ -43,5 +43,9 @@ func (GenkitGenerator) Generate(ctx context.Context, req GenerateRequest, apiKey
 	if err != nil {
 		return GenerateResponse{}, fmt.Errorf("generate %q: %w", req.ModelName, err)
 	}
-	return GenerateResponse{Model: req.ModelName, Output: resp.Text()}, nil
+	return GenerateResponse{
+		Model:        req.ModelName,
+		Output:       resp.Text(),
+		FinishReason: string(resp.FinishReason),
+	}, nil
 }

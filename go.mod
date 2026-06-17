@@ -7,6 +7,7 @@ toolchain go1.25.11
 require (
 	github.com/firebase/genkit/go v1.8.0
 	github.com/openai/openai-go v1.8.2
+	google.golang.org/genai v1.51.0
 )
 
 require (
@@ -49,7 +50,6 @@ require (
 	golang.org/x/net v0.41.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
 	golang.org/x/text v0.27.0 // indirect
-	google.golang.org/genai v1.51.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250603155806-513f23925822 // indirect
 	google.golang.org/grpc v1.73.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect

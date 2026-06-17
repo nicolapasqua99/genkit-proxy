@@ -11,7 +11,7 @@ import (
 // changed at that point. Re-panics on http.ErrAbortHandler to preserve stdlib
 // semantics.
 func Recover(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(writer http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(writer http.ResponseWriter, httpReq *http.Request) {
 		tracked := &statusWriter{ResponseWriter: writer}
 		defer func() {
 			if recovered := recover(); recovered != nil {
@@ -24,7 +24,7 @@ func Recover(next http.Handler) http.Handler {
 				}
 			}
 		}()
-		next.ServeHTTP(tracked, r)
+		next.ServeHTTP(tracked, httpReq)
 	})
 }
 

@@ -28,20 +28,20 @@ func NewHandler(gen Generator) *Handler {
 
 // ServeHTTP decodes a GenerateRequest, extracts the bearer credential, routes
 // the request through the Generator, and writes the JSON response.
-func (handler *Handler) ServeHTTP(writer http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+func (handler *Handler) ServeHTTP(writer http.ResponseWriter, httpReq *http.Request) {
+	if httpReq.Method != http.MethodPost {
 		writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
-	apiKey, err := bearerToken(r)
+	apiKey, err := bearerToken(httpReq)
 	if err != nil {
 		writeError(writer, http.StatusUnauthorized, err.Error())
 		return
 	}
 
-	r.Body = http.MaxBytesReader(writer, r.Body, maxRequestBytes)
-	dec := json.NewDecoder(r.Body)
+	httpReq.Body = http.MaxBytesReader(writer, httpReq.Body, maxRequestBytes)
+	dec := json.NewDecoder(httpReq.Body)
 	dec.DisallowUnknownFields()
 
 	var req GenerateRequest
@@ -54,7 +54,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := handler.gen.Generate(r.Context(), req, apiKey)
+	resp, err := handler.gen.Generate(httpReq.Context(), req, apiKey)
 	if err != nil {
 		status := statusFor(err)
 		if classify(err) >= categoryUnauthenticated {
@@ -70,8 +70,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, r *http.Request) {
 // bearerToken extracts the token from an "Authorization: Bearer <token>"
 // header per RFC 7235 (scheme comparison is case-insensitive).
 // Returns ErrMissingCredentials when the header is absent or malformed.
-func bearerToken(r *http.Request) (string, error) {
-	header := r.Header.Get("Authorization")
+func bearerToken(httpReq *http.Request) (string, error) {
+	header := httpReq.Header.Get("Authorization")
 	scheme, rest, ok := strings.Cut(header, " ")
 	if !ok || !strings.EqualFold(scheme, "Bearer") {
 		return "", ErrMissingCredentials

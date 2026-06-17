@@ -18,12 +18,12 @@ const maxRequestBytes = 1 << 20 // 1 MiB
 
 // Handler serves generation requests over HTTP.
 type Handler struct {
-	gen Generator
+	generator Generator
 }
 
-// NewHandler returns a Handler that routes requests through gen.
-func NewHandler(gen Generator) *Handler {
-	return &Handler{gen: gen}
+// NewHandler returns a Handler that routes requests through generator.
+func NewHandler(generator Generator) *Handler {
+	return &Handler{generator: generator}
 }
 
 // ServeHTTP decodes a GenerateRequest, extracts the bearer credential, routes
@@ -54,7 +54,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, httpReq *http.Requ
 		return
 	}
 
-	resp, err := handler.gen.Generate(httpReq.Context(), req, apiKey)
+	resp, err := handler.generator.Generate(httpReq.Context(), req, apiKey)
 	if err != nil {
 		status := statusFor(err)
 		if classify(err) >= categoryUnauthenticated {

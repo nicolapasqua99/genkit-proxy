@@ -27,8 +27,8 @@ type ValidationError struct {
 }
 
 // Error implements the error interface.
-func (e *ValidationError) Error() string {
-	return fmt.Sprintf("invalid %s: %s", e.Field, e.Reason)
+func (validationErr *ValidationError) Error() string {
+	return fmt.Sprintf("invalid %s: %s", validationErr.Field, validationErr.Reason)
 }
 
 // errCategory is the coarse classification of a Generator error, used to pick

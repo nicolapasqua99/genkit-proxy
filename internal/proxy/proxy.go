@@ -28,7 +28,7 @@ func NewHandler(gen Generator) *Handler {
 
 // ServeHTTP decodes a GenerateRequest, extracts the bearer credential, routes
 // the request through the Generator, and writes the JSON response.
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -54,7 +54,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.gen.Generate(r.Context(), req, apiKey)
+	resp, err := handler.gen.Generate(r.Context(), req, apiKey)
 	if err != nil {
 		status := statusFor(err)
 		if classify(err) >= categoryUnauthenticated {

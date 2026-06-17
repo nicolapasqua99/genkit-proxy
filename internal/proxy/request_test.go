@@ -2,7 +2,7 @@ package proxy
 
 import "testing"
 
-func temp(f float64) *float64 { return &f }
+func temp(value float64) *float64 { return &value }
 
 func TestGenerateRequestValidate(t *testing.T) {
 	cases := []struct {
@@ -23,11 +23,11 @@ func TestGenerateRequestValidate(t *testing.T) {
 		{"empty model segment", GenerateRequest{ModelName: "googleai/", UserMessage: "hi"}, true},
 		{"whitespace model segment", GenerateRequest{ModelName: "googleai/   ", UserMessage: "hi"}, true},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := tc.req.Validate()
-			if (err != nil) != tc.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tc.wantErr)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := testCase.req.Validate()
+			if (err != nil) != testCase.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, testCase.wantErr)
 			}
 		})
 	}

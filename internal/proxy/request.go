@@ -31,17 +31,17 @@ type GenerateResponse struct {
 
 // Validate reports the first problem found with the request, or nil when the
 // request is well formed.
-func (r GenerateRequest) Validate() error {
-	if strings.TrimSpace(r.ModelName) == "" {
+func (request GenerateRequest) Validate() error {
+	if strings.TrimSpace(request.ModelName) == "" {
 		return &ValidationError{Field: "modelName", Reason: "must not be empty"}
 	}
-	if _, err := providerOf(r.ModelName); err != nil {
+	if _, err := providerOf(request.ModelName); err != nil {
 		return err
 	}
-	if strings.TrimSpace(r.UserMessage) == "" {
+	if strings.TrimSpace(request.UserMessage) == "" {
 		return &ValidationError{Field: "userMessage", Reason: "must not be empty"}
 	}
-	if r.Temperature != nil && (*r.Temperature < 0 || *r.Temperature > 2) {
+	if request.Temperature != nil && (*request.Temperature < 0 || *request.Temperature > 2) {
 		return &ValidationError{Field: "temperature", Reason: "must be between 0 and 2"}
 	}
 	return nil

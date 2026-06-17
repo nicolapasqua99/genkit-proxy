@@ -26,8 +26,8 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/generate", handler)
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
+	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusOK)
 	})
 
 	srv := &http.Server{

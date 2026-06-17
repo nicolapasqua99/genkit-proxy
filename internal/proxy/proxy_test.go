@@ -17,16 +17,16 @@ import (
 
 // fakeGenerator records what it was called with and returns canned results.
 type fakeGenerator struct {
-	resp   GenerateResponse
-	err    error
-	gotKey string
-	gotReq GenerateRequest
+	resp       GenerateResponse
+	err        error
+	gotKey     string
+	gotRequest GenerateRequest
 }
 
-func (f *fakeGenerator) Generate(_ context.Context, req GenerateRequest, apiKey string) (GenerateResponse, error) {
-	f.gotKey = apiKey
-	f.gotReq = req
-	return f.resp, f.err
+func (fakeGen *fakeGenerator) Generate(_ context.Context, req GenerateRequest, apiKey string) (GenerateResponse, error) {
+	fakeGen.gotKey = apiKey
+	fakeGen.gotRequest = req
+	return fakeGen.resp, fakeGen.err
 }
 
 func TestHandlerServeHTTP(t *testing.T) {
@@ -183,37 +183,37 @@ func TestHandlerServeHTTP(t *testing.T) {
 			wantStatus: http.StatusMethodNotAllowed,
 		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			fake := &fakeGenerator{resp: tc.genResp, err: tc.genErr}
-			h := NewHandler(fake)
-			req := httptest.NewRequest(tc.method, "/v1/generate", strings.NewReader(tc.body))
-			if tc.auth != "" {
-				req.Header.Set("Authorization", tc.auth)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fake := &fakeGenerator{resp: testCase.genResp, err: testCase.genErr}
+			handler := NewHandler(fake)
+			req := httptest.NewRequest(testCase.method, "/v1/generate", strings.NewReader(testCase.body))
+			if testCase.auth != "" {
+				req.Header.Set("Authorization", testCase.auth)
 			}
-			rec := httptest.NewRecorder()
+			recorder := httptest.NewRecorder()
 
-			h.ServeHTTP(rec, req)
+			handler.ServeHTTP(recorder, req)
 
-			if rec.Code != tc.wantStatus {
-				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tc.wantStatus, rec.Body.String())
+			if recorder.Code != testCase.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", recorder.Code, testCase.wantStatus, recorder.Body.String())
 			}
-			body := rec.Body.String()
-			if tc.wantBodyContains != "" && !strings.Contains(body, tc.wantBodyContains) {
-				t.Errorf("body %q does not contain %q", body, tc.wantBodyContains)
+			body := recorder.Body.String()
+			if testCase.wantBodyContains != "" && !strings.Contains(body, testCase.wantBodyContains) {
+				t.Errorf("body %q does not contain %q", body, testCase.wantBodyContains)
 			}
-			if tc.wantBodyAbsent != "" && strings.Contains(body, tc.wantBodyAbsent) {
-				t.Errorf("body %q should not contain %q", body, tc.wantBodyAbsent)
+			if testCase.wantBodyAbsent != "" && strings.Contains(body, testCase.wantBodyAbsent) {
+				t.Errorf("body %q should not contain %q", body, testCase.wantBodyAbsent)
 			}
-			if tc.wantStatus != http.StatusOK {
+			if testCase.wantStatus != http.StatusOK {
 				return
 			}
 			var got GenerateResponse
-			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
 				t.Fatalf("decode response: %v", err)
 			}
-			if got != tc.genResp {
-				t.Errorf("response = %+v, want %+v", got, tc.genResp)
+			if got != testCase.genResp {
+				t.Errorf("response = %+v, want %+v", got, testCase.genResp)
 			}
 			if fake.gotKey != "secret-key" {
 				t.Errorf("generator received key %q, want secret-key", fake.gotKey)
@@ -223,17 +223,17 @@ func TestHandlerServeHTTP(t *testing.T) {
 }
 
 func TestStatusFor(t *testing.T) {
-	oeUnauth := &openai.Error{
+	openaiApiErrUnauth := &openai.Error{
 		StatusCode: http.StatusUnauthorized,
 		Request:    httptest.NewRequest(http.MethodPost, "/", nil),
 		Response:   &http.Response{StatusCode: http.StatusUnauthorized},
 	}
-	oeForbidden := &openai.Error{
+	openaiApiErrForbidden := &openai.Error{
 		StatusCode: http.StatusForbidden,
 		Request:    httptest.NewRequest(http.MethodPost, "/", nil),
 		Response:   &http.Response{StatusCode: http.StatusForbidden},
 	}
-	oe429 := &openai.Error{
+	openaiApiErr429 := &openai.Error{
 		StatusCode: http.StatusTooManyRequests,
 		Request:    httptest.NewRequest(http.MethodPost, "/", nil),
 		Response:   &http.Response{StatusCode: http.StatusTooManyRequests},
@@ -256,16 +256,16 @@ func TestStatusFor(t *testing.T) {
 		{"genai apierror 401", genai.APIError{Code: http.StatusUnauthorized}, http.StatusUnauthorized},
 		{"genai apierror 403", genai.APIError{Code: http.StatusForbidden}, http.StatusForbidden},
 		{"genai apierror 429", genai.APIError{Code: http.StatusTooManyRequests}, http.StatusTooManyRequests},
-		{"openai error 401", oeUnauth, http.StatusUnauthorized},
-		{"openai error 403", oeForbidden, http.StatusForbidden},
-		{"openai error 429", oe429, http.StatusTooManyRequests},
+		{"openai error 401", openaiApiErrUnauth, http.StatusUnauthorized},
+		{"openai error 403", openaiApiErrForbidden, http.StatusForbidden},
+		{"openai error 429", openaiApiErr429, http.StatusTooManyRequests},
 		{"unknown error", errors.New("boom"), http.StatusBadGateway},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := statusFor(tc.err)
-			if got != tc.wantStatus {
-				t.Errorf("statusFor(%v) = %d, want %d", tc.err, got, tc.wantStatus)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := statusFor(testCase.err)
+			if got != testCase.wantStatus {
+				t.Errorf("statusFor(%v) = %d, want %d", testCase.err, got, testCase.wantStatus)
 			}
 		})
 	}
@@ -326,14 +326,14 @@ func TestSafeMessage(t *testing.T) {
 			wantAbsent:   secret,
 		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := safeMessage(tc.err)
-			if tc.wantContains != "" && !strings.Contains(got, tc.wantContains) {
-				t.Errorf("safeMessage() = %q, want it to contain %q", got, tc.wantContains)
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := safeMessage(testCase.err)
+			if testCase.wantContains != "" && !strings.Contains(got, testCase.wantContains) {
+				t.Errorf("safeMessage() = %q, want it to contain %q", got, testCase.wantContains)
 			}
-			if tc.wantAbsent != "" && strings.Contains(got, tc.wantAbsent) {
-				t.Errorf("safeMessage() = %q, should not contain %q", got, tc.wantAbsent)
+			if testCase.wantAbsent != "" && strings.Contains(got, testCase.wantAbsent) {
+				t.Errorf("safeMessage() = %q, should not contain %q", got, testCase.wantAbsent)
 			}
 		})
 	}

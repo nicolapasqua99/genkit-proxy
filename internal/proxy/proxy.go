@@ -18,60 +18,60 @@ const maxRequestBytes = 1 << 20 // 1 MiB
 
 // Handler serves generation requests over HTTP.
 type Handler struct {
-	gen Generator
+	generator Generator
 }
 
-// NewHandler returns a Handler that routes requests through gen.
-func NewHandler(gen Generator) *Handler {
-	return &Handler{gen: gen}
+// NewHandler returns a Handler that routes requests through generator.
+func NewHandler(generator Generator) *Handler {
+	return &Handler{generator: generator}
 }
 
 // ServeHTTP decodes a GenerateRequest, extracts the bearer credential, routes
 // the request through the Generator, and writes the JSON response.
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+func (handler *Handler) ServeHTTP(writer http.ResponseWriter, httpReq *http.Request) {
+	if httpReq.Method != http.MethodPost {
+		writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
-	apiKey, err := bearerToken(r)
+	apiKey, err := bearerToken(httpReq)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeError(writer, http.StatusUnauthorized, err.Error())
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
-	dec := json.NewDecoder(r.Body)
+	httpReq.Body = http.MaxBytesReader(writer, httpReq.Body, maxRequestBytes)
+	dec := json.NewDecoder(httpReq.Body)
 	dec.DisallowUnknownFields()
 
 	var req GenerateRequest
 	if err := dec.Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		writeError(writer, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
 	if err := req.Validate(); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	resp, err := h.gen.Generate(r.Context(), req, apiKey)
+	resp, err := handler.generator.Generate(httpReq.Context(), req, apiKey)
 	if err != nil {
 		status := statusFor(err)
-		if classify(err) >= catUnauthenticated {
+		if classify(err) >= categoryUnauthenticated {
 			log.Printf("generate failed: model=%q status=%d err=%v", req.ModelName, status, err)
 		}
-		writeError(w, status, safeMessage(err))
+		writeError(writer, status, safeMessage(err))
 		return
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(writer, http.StatusOK, resp)
 }
 
 // bearerToken extracts the token from an "Authorization: Bearer <token>"
 // header per RFC 7235 (scheme comparison is case-insensitive).
 // Returns ErrMissingCredentials when the header is absent or malformed.
-func bearerToken(r *http.Request) (string, error) {
-	header := r.Header.Get("Authorization")
+func bearerToken(httpReq *http.Request) (string, error) {
+	header := httpReq.Header.Get("Authorization")
 	scheme, rest, ok := strings.Cut(header, " ")
 	if !ok || !strings.EqualFold(scheme, "Bearer") {
 		return "", ErrMissingCredentials
@@ -86,17 +86,17 @@ func bearerToken(r *http.Request) (string, error) {
 // statusFor maps a Generator error to an HTTP status code.
 func statusFor(err error) int {
 	switch classify(err) {
-	case catValidation, catUnsupported:
+	case categoryValidation, categoryUnsupported:
 		return http.StatusBadRequest
-	case catUnauthenticated:
+	case categoryUnauthenticated:
 		return http.StatusUnauthorized
-	case catPermissionDenied:
+	case categoryPermissionDenied:
 		return http.StatusForbidden
-	case catRateLimit:
+	case categoryRateLimit:
 		return http.StatusTooManyRequests
-	case catTimeout:
+	case categoryTimeout:
 		return http.StatusGatewayTimeout
-	case catNotFound:
+	case categoryNotFound:
 		return http.StatusNotFound
 	default:
 		return http.StatusBadGateway
@@ -108,12 +108,12 @@ type errorBody struct {
 	Error string `json:"error"`
 }
 
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, errorBody{Error: msg})
+func writeError(writer http.ResponseWriter, status int, message string) {
+	writeJSON(writer, status, errorBody{Error: message})
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+func writeJSON(writer http.ResponseWriter, status int, payload any) {
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(status)
+	_ = json.NewEncoder(writer).Encode(payload)
 }

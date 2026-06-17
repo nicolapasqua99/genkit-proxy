@@ -11,20 +11,20 @@ import (
 // changed at that point. Re-panics on http.ErrAbortHandler to preserve stdlib
 // semantics.
 func Recover(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sw := &statusWriter{ResponseWriter: w}
+	return http.HandlerFunc(func(writer http.ResponseWriter, httpReq *http.Request) {
+		tracked := &statusWriter{ResponseWriter: writer}
 		defer func() {
-			if rec := recover(); rec != nil {
-				if rec == http.ErrAbortHandler {
-					panic(rec)
+			if recovered := recover(); recovered != nil {
+				if recovered == http.ErrAbortHandler {
+					panic(recovered)
 				}
-				log.Printf("panic recovered: %v", rec)
-				if !sw.wroteHeader {
-					writeJSON(sw, http.StatusInternalServerError, errorBody{Error: "internal server error"})
+				log.Printf("panic recovered: %v", recovered)
+				if !tracked.wroteHeader {
+					writeJSON(tracked, http.StatusInternalServerError, errorBody{Error: "internal server error"})
 				}
 			}
 		}()
-		next.ServeHTTP(sw, r)
+		next.ServeHTTP(tracked, httpReq)
 	})
 }
 
@@ -35,12 +35,12 @@ type statusWriter struct {
 	wroteHeader bool
 }
 
-func (w *statusWriter) WriteHeader(code int) {
-	w.wroteHeader = true
-	w.ResponseWriter.WriteHeader(code)
+func (writer *statusWriter) WriteHeader(code int) {
+	writer.wroteHeader = true
+	writer.ResponseWriter.WriteHeader(code)
 }
 
-func (w *statusWriter) Write(b []byte) (int, error) {
-	w.wroteHeader = true
-	return w.ResponseWriter.Write(b)
+func (writer *statusWriter) Write(data []byte) (int, error) {
+	writer.wroteHeader = true
+	return writer.ResponseWriter.Write(data)
 }

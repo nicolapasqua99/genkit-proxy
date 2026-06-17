@@ -2,45 +2,80 @@
 //
 // It exposes POST /v1/generate, which accepts a generic generation payload and
 // forwards it to the LLM provider named by the request's model prefix, using
-// the API key supplied in the Authorization bearer header. GET /healthz is a
-// liveness probe. The server listens on $PORT (default 8080) for Cloud Run.
+// the API key supplied in the Authorization bearer header. GET /healthz and
+// GET /readyz are liveness and readiness probes. GET /version returns the build
+// SHA and timestamp. The server listens on $PORT (default 8080) for Cloud Run.
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/nicolapasqua99/genkit-proxy/internal/proxy"
 )
 
+// version and buildTime are overridden at link time via -ldflags -X.
+var (
+	version   = "dev"
+	buildTime = "unknown"
+)
+
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	cfg, err := loadConfig()
+	if err != nil {
+		log.Fatalf("config error: %v", err)
 	}
 
-	handler := proxy.NewHandler(proxy.GenkitGenerator{})
+	handler := proxy.NewHandler(proxy.NewGenkitGenerator(cfg.generateTimeout))
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/generate", handler)
 	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(http.StatusOK)
 	})
+	mux.HandleFunc("GET /readyz", func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("GET /version", func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(map[string]string{
+			"version":   version,
+			"buildTime": buildTime,
+		})
+	})
 
 	srv := &http.Server{
-		Addr:              ":" + port,
+		Addr:              ":" + cfg.port,
 		Handler:           proxy.Recover(mux),
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      120 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		ReadHeaderTimeout: cfg.readHeaderTimeout,
+		ReadTimeout:       cfg.readTimeout,
+		WriteTimeout:      cfg.writeTimeout,
+		IdleTimeout:       cfg.idleTimeout,
 	}
 
-	log.Printf("genkit-proxy listening on :%s", port)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("server error: %v", err)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		log.Printf("genkit-proxy listening on :%s", cfg.port)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server error: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	stop()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("shutdown error: %v", err)
 	}
 }

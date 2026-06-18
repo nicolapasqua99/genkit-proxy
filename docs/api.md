@@ -222,7 +222,7 @@ sequenceDiagram
     participant X as genkit-proxy
 
     S->>X: GET /metrics
-    X-->>S: 200 text/plain; Prometheus exposition
+    X-->>S: 200 text/plain, Prometheus exposition
 ```
 
 ---

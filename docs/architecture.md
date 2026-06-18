@@ -133,7 +133,7 @@ sequenceDiagram
     K-->>G: response
     G-->>H: GenerateResponse
     H-->>C: 200 {model, output, finishReason}
-    Note over MW: Logger writes access log;<br/>Metrics records count + latency
+    Note over MW: Logger writes access log,<br/>Metrics records count + latency
 ```
 
 ### Rejected before the generator
@@ -193,7 +193,7 @@ sequenceDiagram
     K-->>G: error
     G-->>H: wrapped error
     H->>H: classify → statusFor → safeMessage
-    Note over H: full error logged with request_id;<br/>client gets generic message
+    Note over H: full error logged with request_id,<br/>client gets generic message
     H-->>C: 401/403/404/429/502/504 {error}
 ```
 

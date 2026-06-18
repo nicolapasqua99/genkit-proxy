@@ -25,6 +25,47 @@ request to keep tenant keys isolated. The service listens on `$PORT` (default
 | OpenAI | `openai` | `openai/gpt-4o` |
 | Anthropic | `anthropic` | `anthropic/claude-3-5-sonnet` |
 
+## Architecture
+
+A caller speaks one request/response shape; the proxy selects a provider from the
+model-name prefix and forwards the request with the caller-supplied key.
+
+```mermaid
+graph LR
+    client["API client"] -->|"POST /v1/generate<br/>Authorization: Bearer &lt;key&gt;"| proxy
+    scraper["Prometheus / scraper"] -->|"GET /metrics"| proxy
+
+    subgraph host["Cloud Run (listens on $PORT)"]
+        proxy["genkit-proxy"]
+    end
+
+    proxy -->|"googleai/*"| google["Google AI"]
+    proxy -->|"openai/*"| openai["OpenAI"]
+    proxy -->|"anthropic/*"| anthropic["Anthropic"]
+```
+
+Every request passes through a four-layer middleware chain before reaching the
+handler:
+
+```mermaid
+flowchart LR
+    in(["request"]) --> r["Recover"] --> id["RequestID"] --> log["Logger"] --> m["Metrics"] --> mux["mux"] --> h["Handler"]
+```
+
+See [`docs/architecture.md`](docs/architecture.md) for the full request
+lifecycle, provider routing, and process lifecycle diagrams.
+
+## Documentation
+
+| Doc | Contents |
+|-----|----------|
+| [Architecture](docs/architecture.md) | System context, components, middleware, request and process lifecycle (diagrams). |
+| [API reference](docs/api.md) | Every endpoint with schemas, status codes, and a per-endpoint sequence diagram. |
+| [Error handling](docs/error-handling.md) | Error classification flow and the category → status → message mapping. |
+| [Observability](docs/observability.md) | Request IDs, structured logging, and Prometheus metrics. |
+| [Deployment](docs/deployment.md) | Container build, CI/CD pipeline, runtime config, and shutdown. |
+| [Manual testing](docs/manual-testing.md) | Offline and provider integration checks with `curl`. |
+
 ## API
 
 ### `POST /v1/generate`

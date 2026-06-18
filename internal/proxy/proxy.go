@@ -1,9 +1,3 @@
-// Package proxy implements a model-agnostic HTTP gateway that forwards
-// generation requests to LLM providers through Firebase Genkit, using
-// per-request credentials supplied by the caller. The provider is selected
-// dynamically from the provider-prefixed model name (for example
-// "googleai/gemini-2.5-flash"), and the caller's API key is taken from the
-// request's Authorization header so credentials are never hardcoded.
 package proxy
 
 import (

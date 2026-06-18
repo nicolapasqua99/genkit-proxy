@@ -89,7 +89,11 @@ Errors are returned as `{"error": "<message>"}`. Caller mistakes are reported
 verbatim; upstream failures are reduced to generic messages so internal details
 never leak — see [error handling](error-handling.md) for the full mapping.
 
-### Sequence
+### Sequences
+
+#### Success
+
+A valid request whose upstream generation succeeds.
 
 ```mermaid
 sequenceDiagram
@@ -99,20 +103,89 @@ sequenceDiagram
     participant P as Provider
 
     C->>X: POST /v1/generate (Bearer key, JSON body)
-    X->>X: validate method, auth, body, modelName
-    alt request invalid / unsupported provider
-        X-->>C: 400 / 401 / 405 {error}
-    else valid
-        X->>P: forward generation with caller key
-        alt upstream ok
-            P-->>X: text + finishReason
-            X-->>C: 200 {model, output, finishReason}
-        else upstream error
-            P-->>X: error
-            X-->>C: 401/403/404/429/502/504 {error}
-        end
+    X->>X: method, auth, body, modelName all valid
+    X->>P: forward generation with caller key
+    P-->>X: text + finishReason
+    X-->>C: 200 {model, output, finishReason}
+```
+
+#### Request rejected before the provider is called
+
+Method, auth, and validation failures are caught locally — the provider is never
+contacted, so these responses cost nothing upstream and the message is returned
+verbatim.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant X as genkit-proxy
+    participant P as Provider
+
+    C->>X: POST /v1/generate
+    alt method is not POST
+        X-->>C: 405 {error: "method not allowed"}
+    else missing / malformed bearer token
+        X-->>C: 401 {error: "missing or malformed Authorization bearer token"}
+    else bad JSON, unknown field, missing field, temperature out of range, or unsupported provider
+        X-->>C: 400 {error: "<validation detail>"}
+    end
+    Note over X,P: provider is never called
+```
+
+#### Upstream provider error
+
+The request is valid and forwarded, but the provider fails. The error is
+classified and reduced to a generic, category-based message; the raw error is
+logged server-side only.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant X as genkit-proxy
+    participant P as Provider
+
+    C->>X: POST /v1/generate (valid request)
+    X->>P: forward generation with caller key
+    P-->>X: error
+    X->>X: classify → statusFor → safeMessage
+    Note over X: full error logged with request_id
+    alt credentials rejected
+        X-->>C: 401 {error: "upstream provider rejected the supplied credentials"}
+    else access denied
+        X-->>C: 403 {error: "upstream provider denied access"}
+    else model not found
+        X-->>C: 404 {error: "requested model was not found"}
+    else rate limited
+        X-->>C: 429 {error: "upstream provider rate limit exceeded"}
+    else timed out
+        X-->>C: 504 {error: "upstream provider request timed out"}
+    else any other failure
+        X-->>C: 502 {error: "upstream provider error"}
     end
 ```
+
+See [error handling](error-handling.md) for how each provider error maps to these
+categories.
+
+#### Internal error (panic)
+
+If the handler panics, the `Recover` middleware logs it and returns a generic
+`500` (provided no response bytes were written yet).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant X as genkit-proxy
+
+    C->>X: POST /v1/generate
+    X->>X: handler panics
+    Note over X: Recover logs "panic recovered" with request_id
+    X-->>C: 500 {error: "internal server error"}
+```
+
 
 ### Examples
 

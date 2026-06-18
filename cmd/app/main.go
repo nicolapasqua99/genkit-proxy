@@ -4,7 +4,8 @@
 // forwards it to the LLM provider named by the request's model prefix, using
 // the API key supplied in the Authorization bearer header. GET /healthz and
 // GET /readyz are liveness and readiness probes. GET /version returns the build
-// SHA and timestamp. The server listens on $PORT (default 8080) for Cloud Run.
+// SHA and timestamp. GET /metrics serves Prometheus metrics. The server listens
+// on $PORT (default 8080) for Cloud Run.
 package main
 
 import (
@@ -34,10 +35,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	metrics, err := proxy.NewMetrics()
+	if err != nil {
+		slog.Error("metrics error", "err", err)
+		os.Exit(1)
+	}
+
 	handler := proxy.NewHandler(proxy.NewGenkitGenerator(cfg.generateTimeout))
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/generate", handler)
+	mux.Handle("GET /metrics", metrics.Handler())
 	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(http.StatusOK)
 	})
@@ -54,7 +62,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.port,
-		Handler:           proxy.Recover(proxy.RequestID(proxy.Logger(mux))),
+		Handler:           proxy.Recover(proxy.RequestID(proxy.Logger(metrics.Middleware(mux)))),
 		ReadHeaderTimeout: cfg.readHeaderTimeout,
 		ReadTimeout:       cfg.readTimeout,
 		WriteTimeout:      cfg.writeTimeout,

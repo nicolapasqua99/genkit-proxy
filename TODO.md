@@ -44,25 +44,26 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   requests and pushes, and make the auto-tag (`bump-version.yml`) / deploy (`release.yml`)
   path depend on it. *Why:* today every push to `main` auto-tags and every tag auto-deploys to
   Cloud Run with **no** test/lint/vuln gate — untested code ships straight to production.
-- [ ] **Graceful shutdown** — `cmd/app/main.go`: use `signal.NotifyContext(ctx,
+- [x] **Graceful shutdown** — `cmd/app/main.go`: use `signal.NotifyContext(ctx,
   os.Interrupt, syscall.SIGTERM)`, run `ListenAndServe` in a goroutine, and call
   `srv.Shutdown(ctx)` on signal. *Why:* Cloud Run sends `SIGTERM` before reaping the
   container; today in-flight generations are cut.
-- [ ] **Per-request upstream timeout** — `internal/proxy/generator.go`: wrap
+- [x] **Per-request upstream timeout** — `internal/proxy/generator.go`: wrap
   `genkit.Generate` in a `context.WithTimeout` (env-configurable). *Why:* bound latency; a
   hung provider currently occupies a goroutine until the 120s `WriteTimeout`.
-- [ ] **Structured logging** — add an `slog` middleware around the mux in `cmd/app`:
+- [x] **Structured logging** — add an `slog` middleware around the mux in `cmd/app`:
   method, path, status, latency, model, request ID. **Never log the bearer token.**
-- [ ] **Request ID propagation** — accept an inbound `X-Request-ID` or generate one; echo it
+- [x] **Request ID propagation** — accept an inbound `X-Request-ID` or generate one; echo it
   in the response header and thread it through the structured logs. *Why:* correlate a caller
   request with its upstream call and log line.
-- [ ] **Metrics** — expose `/metrics` (OpenTelemetry / Prometheus): request count, latency
-  histogram, token counters, error rate by provider and status. Genkit already pulls in the
-  OTel dependencies.
-- [ ] **Readiness + build/version endpoints** — add `/readyz` and `/version` (git SHA / build
+- [x] **Metrics** — expose `/metrics` (OpenTelemetry / Prometheus): request count, latency
+  histogram, and error rate by provider and status, via an OTel meter exported through a
+  dedicated Prometheus registry (`internal/proxy/metrics.go`). Token counters are deferred
+  until the Tier 2 "Usage + finish reason" item plumbs usage data through.
+- [x] **Readiness + build/version endpoints** — add `/readyz` and `/version` (git SHA / build
   time via `-ldflags -X`). *Why:* `/healthz` is liveness-only; ops needs to confirm what's
   deployed.
-- [ ] **Env-configurable server timeouts** — `cmd/app/main.go` hardcodes the Read / Write /
+- [x] **Env-configurable server timeouts** — `cmd/app/main.go` hardcodes the Read / Write /
   Idle timeouts; make them (and the per-request timeout above) env-driven, and validate `PORT`.
 
 ## Tier 2 — Feature surface

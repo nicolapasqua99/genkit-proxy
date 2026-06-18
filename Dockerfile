@@ -9,8 +9,13 @@ COPY go.* ./
 RUN go mod download
 
 # Build a small static binary. Point this at your binary's package (e.g. ./cmd/app).
+# Pass VCS_REF (git SHA) and BUILD_TIME at build time to embed version info.
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/app
+ARG VCS_REF=unknown
+ARG BUILD_TIME=unknown
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    -ldflags="-s -w -X main.version=${VCS_REF} -X main.buildTime=${BUILD_TIME}" \
+    -o /out/server ./cmd/app
 
 # ---- runtime stage ----
 FROM gcr.io/distroless/static-debian12:nonroot

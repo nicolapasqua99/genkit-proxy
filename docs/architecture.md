@@ -102,8 +102,11 @@ and reuses its slot — falling back to its own slot only if `Logger` is absent
 
 ## Request lifecycle
 
-The full internal path of a `POST /v1/generate` call, with the success and error
-branches:
+The internal path of a `POST /v1/generate` call, split by outcome. The
+[API reference](api.md) shows the same situations from the client's perspective;
+error classification is detailed in [error handling](error-handling.md).
+
+### Success
 
 ```mermaid
 sequenceDiagram
@@ -118,33 +121,100 @@ sequenceDiagram
 
     C->>MW: POST /v1/generate + Bearer key + JSON
     MW->>H: ServeHTTP (ctx: request_id, modelSlot)
-    H->>H: method == POST?
-    H->>H: bearerToken() — parse Authorization
+    H->>H: method == POST, bearerToken() ok
     H->>H: decode body (≤ 1 MiB, DisallowUnknownFields)
-    H->>R: req.Validate() → providerOf(modelName)
+    H->>R: req.Validate() → providerOf(modelName) ok
     H->>H: modelSlot.name = modelName
     H->>G: Generate(ctx, req, apiKey)
     G->>R: pluginFor(modelName, apiKey)
     G->>K: genkit.Init(plugin) + Generate(opts)
     K->>P: upstream generation
-    alt success
-        P-->>K: text + finishReason
-        K-->>G: response
-        G-->>H: GenerateResponse
-        H-->>C: 200 {model, output, finishReason}
-    else error
-        P-->>K: provider error
-        K-->>G: error
-        G-->>H: wrapped error
-        H->>H: classify → statusFor → safeMessage
-        Note over H: full error logged server-side;<br/>client gets generic message
-        H-->>C: 4xx/5xx {error}
-    end
+    P-->>K: text + finishReason
+    K-->>G: response
+    G-->>H: GenerateResponse
+    H-->>C: 200 {model, output, finishReason}
     Note over MW: Logger writes access log;<br/>Metrics records count + latency
 ```
 
-Validation, auth, and routing details live in the [API reference](api.md); error
-classification is detailed in [error handling](error-handling.md).
+### Rejected before the generator
+
+Method, auth, and validation checks run in the `Handler` before the `Generator`
+is ever called, so these outcomes never construct a plugin or touch a provider.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant MW as Middleware chain
+    participant H as Handler (proxy.go)
+    participant R as Router (router.go)
+    participant G as GenkitGenerator
+
+    C->>MW: POST /v1/generate
+    MW->>H: ServeHTTP
+    alt method is not POST
+        H-->>C: 405 method not allowed
+    else missing / malformed bearer
+        H-->>C: 401 missing/malformed bearer token
+    else bad body (JSON / unknown field / size)
+        H-->>C: 400 invalid JSON body
+    else Validate() fails (field or unsupported provider)
+        H->>R: providerOf(modelName)
+        R-->>H: ValidationError / ErrUnsupportedProvider
+        H-->>C: 400 {error: detail}
+    end
+    Note over H,G: Generator and provider are never called
+```
+
+### Upstream provider error
+
+The request is valid and forwarded, but the provider fails. The error is
+classified and reduced to a generic message; the raw error is logged
+server-side only.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant MW as Middleware chain
+    participant H as Handler (proxy.go)
+    participant R as Router (router.go)
+    participant G as GenkitGenerator
+    participant K as Genkit
+    participant P as Provider
+
+    C->>MW: POST /v1/generate (valid request)
+    MW->>H: ServeHTTP
+    H->>G: Generate(ctx, req, apiKey)
+    G->>R: pluginFor(modelName, apiKey)
+    G->>K: genkit.Init(plugin) + Generate(opts)
+    K->>P: upstream generation
+    P-->>K: provider error
+    K-->>G: error
+    G-->>H: wrapped error
+    H->>H: classify → statusFor → safeMessage
+    Note over H: full error logged with request_id;<br/>client gets generic message
+    H-->>C: 401/403/404/429/502/504 {error}
+```
+
+### Recovered panic
+
+A panic anywhere in the handler chain is caught by the outermost `Recover`
+middleware, which returns a generic `500` if the response has not started.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant MW as Middleware chain (Recover)
+    participant H as Handler (proxy.go)
+
+    C->>MW: POST /v1/generate
+    MW->>H: ServeHTTP
+    H-->>MW: panic
+    Note over MW: Recover logs "panic recovered" with request_id
+    MW-->>C: 500 {error: "internal server error"}
+```
 
 ## Provider routing
 
@@ -174,10 +244,11 @@ flowchart TD
 
 ## Process lifecycle
 
+### Startup
+
 ```mermaid
 sequenceDiagram
     autonumber
-    participant OS as OS / Cloud Run
     participant M as main()
     participant S as http.Server
 
@@ -186,14 +257,27 @@ sequenceDiagram
     M->>M: build mux + middleware chain
     M->>S: ListenAndServe (goroutine)
     Note over M: block on signal context
+```
+
+The accept loop runs in a goroutine while `main` blocks on a
+`signal.NotifyContext`. The standard `net/http` server serves each request on
+its own goroutine; the handler spawns none of its own.
+
+### Graceful shutdown
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OS as OS / Cloud Run
+    participant M as main()
+    participant S as http.Server
+
     OS->>M: SIGINT / SIGTERM
     M->>S: Shutdown(ctx, 30s deadline)
     S-->>M: in-flight requests drained
     M-->>OS: exit 0
 ```
 
-The accept loop runs in a goroutine while `main` blocks on a
-`signal.NotifyContext`. On `SIGINT`/`SIGTERM` it calls `srv.Shutdown` with a
-30-second deadline to drain in-flight requests (`main.go:72-90`). The standard
-`net/http` server already serves each request on its own goroutine; the handler
-spawns none of its own.
+On `SIGINT`/`SIGTERM`, `main` calls `srv.Shutdown` with a 30-second deadline to
+drain in-flight requests before exiting (`main.go:72-90`), so a Cloud Run
+revision rollover does not cut active generations short.

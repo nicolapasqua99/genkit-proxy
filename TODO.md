@@ -56,9 +56,10 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
 - [x] **Request ID propagation** — accept an inbound `X-Request-ID` or generate one; echo it
   in the response header and thread it through the structured logs. *Why:* correlate a caller
   request with its upstream call and log line.
-- [ ] **Metrics** — expose `/metrics` (OpenTelemetry / Prometheus): request count, latency
-  histogram, token counters, error rate by provider and status. Genkit already pulls in the
-  OTel dependencies.
+- [x] **Metrics** — expose `/metrics` (OpenTelemetry / Prometheus): request count, latency
+  histogram, and error rate by provider and status, via an OTel meter exported through a
+  dedicated Prometheus registry (`internal/proxy/metrics.go`). Token counters are deferred
+  until the Tier 2 "Usage + finish reason" item plumbs usage data through.
 - [x] **Readiness + build/version endpoints** — add `/readyz` and `/version` (git SHA / build
   time via `-ldflags -X`). *Why:* `/healthz` is liveness-only; ops needs to confirm what's
   deployed.

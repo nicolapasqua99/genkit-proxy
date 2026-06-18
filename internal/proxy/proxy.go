@@ -8,7 +8,7 @@ package proxy
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 )
@@ -54,11 +54,20 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, httpReq *http.Requ
 		return
 	}
 
+	if slot := modelSlotFromContext(httpReq.Context()); slot != nil {
+		slot.name = req.ModelName
+	}
+
 	resp, err := handler.generator.Generate(httpReq.Context(), req, apiKey)
 	if err != nil {
 		status := statusFor(err)
 		if classify(err) >= categoryUnauthenticated {
-			log.Printf("generate failed: model=%q status=%d err=%v", req.ModelName, status, err)
+			slog.ErrorContext(httpReq.Context(), "generate failed",
+				"model", req.ModelName,
+				"status", status,
+				"err", err,
+				"request_id", requestIDFromContext(httpReq.Context()),
+			)
 		}
 		writeError(writer, status, safeMessage(err))
 		return

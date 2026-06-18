@@ -8,7 +8,7 @@ package main
 
 import (
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -32,15 +32,16 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           proxy.Recover(mux),
+		Handler:           proxy.Recover(proxy.RequestID(proxy.Logger(mux))),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      120 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 
-	log.Printf("genkit-proxy listening on :%s", port)
+	slog.Info("genkit-proxy listening", "port", port)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("server error: %v", err)
+		slog.Error("server error", "err", err)
+		os.Exit(1)
 	}
 }

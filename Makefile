@@ -40,8 +40,12 @@ test-race: ## Run tests with the race detector and coverage
 cover: test-race ## Show the coverage summary
 	go tool cover -func=coverage.txt
 
+# Default (symbol) scan builds an SSA call graph that panics on this module graph
+# under Go 1.25 (x/tools ForEachElement TypeParam bug, bundled via x/vuln).
+# -scan package keeps import-level precision without that pass; drop the flag once
+# the upstream bug is fixed.
 vuln: ## Scan for known vulnerabilities
-	govulncheck ./...
+	govulncheck -scan package ./...
 
 licenses: ## Check dependency licenses
 	go-licenses check ./...

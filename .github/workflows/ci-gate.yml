@@ -1,4 +1,4 @@
-name: CI
+name: CI Quality Gate
 
 # Quality gate: build, format, vet, lint, race tests, vulnerability and license
 # checks. Runs on every pull request, and is reused by bump-version.yml via

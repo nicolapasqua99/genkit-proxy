@@ -1,0 +1,58 @@
+name: CI Quality Gate
+
+# Quality gate: build, format, vet, lint, race tests, vulnerability and license
+# checks. Runs on every pull request, and is reused by bump-version.yml via
+# workflow_call so a tag (and the deploy it triggers) is only created when these
+# checks pass.
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Install the exact pinned toolchain (.go-version mirrors `toolchain` in
+      # go.mod). Pinning it here means GOTOOLCHAIN=auto has nothing to download,
+      # so GOROOT is a normal SDK dir — go-licenses needs that to resolve stdlib
+      # module info. Module/build caching is on by default.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: .go-version
+
+      # Same tools the Makefile expects, minus air (not needed in CI).
+      # golangci-lint is pinned; the rest track latest, matching `make tools`.
+      - name: Install tools
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          go install gotest.tools/gotestsum@latest
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install github.com/google/go-licenses/v2@latest
+
+      - name: Build
+        run: make build
+
+      - name: Format check
+        run: make fmt-check
+
+      - name: Vet
+        run: make vet
+
+      - name: Lint
+        run: make lint
+
+      - name: Test (race + coverage)
+        run: make test-race
+
+      - name: Vulnerability scan
+        run: make vuln
+
+      - name: License check
+        run: make licenses

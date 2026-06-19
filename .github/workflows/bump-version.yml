@@ -8,6 +8,9 @@ permissions:
   contents: write
 
 jobs:
+  gate:
+    uses: ./.github/workflows/ci-gate.yml
+
   bump-and-tag:
     runs-on: ubuntu-latest
     steps:

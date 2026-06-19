@@ -4,10 +4,10 @@ Roadmap for the Genkit AI proxy. The current service covers the core: per-reques
 provider routing by model prefix, `Authorization: Bearer` credential injection, validation,
 and a single-turn `POST /v1/generate`. The items below are deferred, grouped by priority.
 
-> **Build note:** there is currently **no CI workflow** running the quality gates.
-> `golangci-lint`, `go vet`, the race tests, `govulncheck`, and `go-licenses` run only
-> locally; the **CI quality gate** item in Tier 1 tracks wiring them up so they actually
-> run on every PR (today nothing does).
+> **Build note:** `.github/workflows/ci-gate.yml` runs the quality gates
+> (`go build`, `golangci-lint`, `go vet`, race tests, `govulncheck`, `go-licenses`) on every
+> pull request, and `bump-version.yml` reuses it so a release tag — and the deploy it triggers —
+> is only cut when the gate passes.
 
 ## Tier 0 — Correctness gaps (closest to bugs; do first)
 
@@ -39,11 +39,12 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
 
 ## Tier 1 — Production hardening
 
-- [ ] **CI quality gate** — add `.github/workflows/ci.yml` running `go build` /
+- [x] **CI quality gate** — `.github/workflows/ci-gate.yml` runs `go build` /
   `golangci-lint run` / `go vet` / `gotestsum -race` / `govulncheck` / `go-licenses` on pull
-  requests and pushes, and make the auto-tag (`bump-version.yml`) / deploy (`release.yml`)
-  path depend on it. *Why:* today every push to `main` auto-tags and every tag auto-deploys to
-  Cloud Run with **no** test/lint/vuln gate — untested code ships straight to production.
+  requests, and `bump-version.yml` reuses it (via `workflow_call` + `needs`) so the auto-tag and
+  the deploy it triggers only proceed when the gate passes. *Why:* previously every push to
+  `main` auto-tagged and every tag auto-deployed to Cloud Run with **no** test/lint/vuln gate —
+  untested code shipped straight to production.
 - [x] **Graceful shutdown** — `cmd/app/main.go`: use `signal.NotifyContext(ctx,
   os.Interrupt, syscall.SIGTERM)`, run `ListenAndServe` in a goroutine, and call
   `srv.Shutdown(ctx)` on signal. *Why:* Cloud Run sends `SIGTERM` before reaping the

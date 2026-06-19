@@ -4,10 +4,10 @@ Roadmap for the Genkit AI proxy. The current service covers the core: per-reques
 provider routing by model prefix, `Authorization: Bearer` credential injection, validation,
 and a single-turn `POST /v1/generate`. The items below are deferred, grouped by priority.
 
-> **Build note:** `.github/workflows/ci-gate.yml` runs the quality gates
-> (`go build`, `golangci-lint`, `go vet`, race tests, `govulncheck`, `go-licenses`) on every
-> pull request, and `bump-version.yml` reuses it so a release tag — and the deploy it triggers —
-> is only cut when the gate passes.
+> **Build note:** `.github/workflows/ci-gate.yml` ("CI Quality Gate") runs the quality gates
+> (`go build`, `golangci-lint`, `go vet`, race tests, `govulncheck`, `go-licenses`) on every pull
+> request as a required status check. With direct pushes to `main` disallowed, every commit on
+> `main` has passed the gate, so the auto-tag and Cloud Run deploy run only on gated code.
 
 ## Tier 0 — Correctness gaps (closest to bugs; do first)
 
@@ -39,12 +39,12 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
 
 ## Tier 1 — Production hardening
 
-- [x] **CI quality gate** — `.github/workflows/ci-gate.yml` runs `go build` /
-  `golangci-lint run` / `go vet` / `gotestsum -race` / `govulncheck` / `go-licenses` on pull
-  requests, and `bump-version.yml` reuses it (via `workflow_call` + `needs`) so the auto-tag and
-  the deploy it triggers only proceed when the gate passes. *Why:* previously every push to
-  `main` auto-tagged and every tag auto-deployed to Cloud Run with **no** test/lint/vuln gate —
-  untested code shipped straight to production.
+- [x] **CI quality gate** — `.github/workflows/ci-gate.yml` ("CI Quality Gate") runs `go build` /
+  `golangci-lint run` / `go vet` / `gotestsum -race` / `govulncheck` / `go-licenses` on every pull
+  request as a required status check. Combined with the no-direct-push rule on `main`, the auto-tag
+  (`bump-version.yml`) → Cloud Run deploy path only ever runs on gated commits. *Why:* previously
+  every push to `main` auto-tagged and every tag auto-deployed to Cloud Run with **no**
+  test/lint/vuln gate — untested code shipped straight to production.
 - [x] **Graceful shutdown** — `cmd/app/main.go`: use `signal.NotifyContext(ctx,
   os.Interrupt, syscall.SIGTERM)`, run `ListenAndServe` in a goroutine, and call
   `srv.Shutdown(ctx)` on signal. *Why:* Cloud Run sends `SIGTERM` before reaping the

@@ -4,7 +4,7 @@ Roadmap for the Genkit AI proxy. The current service covers the core: per-reques
 provider routing by model prefix, `Authorization: Bearer` credential injection, validation,
 and a single-turn `POST /v1/generate`. The items below are deferred, grouped by priority.
 
-> **Build note:** `.github/workflows/ci.yml` runs the quality gates
+> **Build note:** `.github/workflows/ci-gate.yml` runs the quality gates
 > (`go build`, `golangci-lint`, `go vet`, race tests, `govulncheck`, `go-licenses`) on every
 > pull request, and `bump-version.yml` reuses it so a release tag — and the deploy it triggers —
 > is only cut when the gate passes.
@@ -39,7 +39,7 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
 
 ## Tier 1 — Production hardening
 
-- [x] **CI quality gate** — `.github/workflows/ci.yml` runs `go build` /
+- [x] **CI quality gate** — `.github/workflows/ci-gate.yml` runs `go build` /
   `golangci-lint run` / `go vet` / `gotestsum -race` / `govulncheck` / `go-licenses` on pull
   requests, and `bump-version.yml` reuses it (via `workflow_call` + `needs`) so the auto-tag and
   the deploy it triggers only proceed when the gate passes. *Why:* previously every push to

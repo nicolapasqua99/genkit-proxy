@@ -16,6 +16,7 @@ const (
 	providerGoogleAI  = "googleai"
 	providerOpenAI    = "openai"
 	providerAnthropic = "anthropic"
+	providerVertexAI  = "vertexai"
 )
 
 // providerOf extracts and validates the provider prefix of a
@@ -26,7 +27,7 @@ func providerOf(modelName string) (string, error) {
 		return "", fmt.Errorf("%w: %q is not provider-prefixed", ErrUnsupportedProvider, modelName)
 	}
 	switch provider {
-	case providerGoogleAI, providerOpenAI, providerAnthropic:
+	case providerGoogleAI, providerOpenAI, providerAnthropic, providerVertexAI:
 		if strings.TrimSpace(model) == "" {
 			return "", &ValidationError{Field: "modelName", Reason: "missing model after provider prefix"}
 		}
@@ -52,6 +53,11 @@ func pluginFor(modelName, apiKey string) (api.Plugin, error) {
 		return &openai.OpenAI{APIKey: apiKey}, nil
 	case providerAnthropic:
 		return &anthropic.Anthropic{Opts: []option.RequestOption{option.WithAPIKey(apiKey)}}, nil
+	case providerVertexAI:
+		// Vertex authenticates via Application Default Credentials; ProjectID and
+		// Location come from GOOGLE_CLOUD_PROJECT / GOOGLE_CLOUD_LOCATION. The
+		// per-request bearer is not used here.
+		return &googlegenai.VertexAI{}, nil
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedProvider, provider)
 	}

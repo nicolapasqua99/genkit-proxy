@@ -97,6 +97,24 @@ curl -s -X POST localhost:8080/v1/generate \
 # expect: {"model":"openai/gpt-4o","data":{...},"finishReason":"stop","usage":{...}}
 ```
 
+### Vertex AI — GCP credentials, not a key
+
+`vertexai` authenticates with Application Default Credentials, not the bearer.
+Set up the GCP environment first: `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`
+(or `GOOGLE_CLOUD_REGION`), and ADC (`gcloud auth application-default login`
+locally, or the service account on Cloud Run). The bearer is still required but
+its value is ignored upstream.
+
+```bash
+curl -s -X POST localhost:8080/v1/generate \
+  -H "Authorization: Bearer any-gate-token" \
+  -d '{"modelName":"vertexai/gemini-2.5-flash","userMessage":"say hi"}'
+# expect: {"model":"vertexai/gemini-2.5-flash","output":"...","finishReason":"stop","usage":{...}}
+```
+
+If project/location or ADC are missing, the request fails with a classified
+upstream error (not a crash), and the raw detail is logged server-side only.
+
 ## Behaviors that are test-only
 
 These can't easily be triggered from outside and are covered by unit tests:

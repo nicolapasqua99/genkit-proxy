@@ -46,9 +46,10 @@ flowchart TD
 | `404` | `categoryNotFound` |
 | anything else | `categoryUpstream` |
 
-Note the provider coverage: `googleai` surfaces as a typed `*core.GenkitError`
-(with a raw `genai.APIError` fallback); `openai` and `anthropic` both surface as
-`*openai.Error` (the Anthropic plugin is OpenAI-compatible).
+Note the provider coverage: `googleai` and `vertexai` surface as a typed
+`*core.GenkitError` (with a raw `genai.APIError` fallback) — both use the
+`googlegenai` plugin; `openai` and `anthropic` both surface as `*openai.Error`
+(the Anthropic plugin is OpenAI-compatible).
 
 ## Category → status → message
 

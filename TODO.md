@@ -69,7 +69,7 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
 
 ## Tier 2 — Feature surface
 
-- [ ] **Usage + finish reason in response** — extend `GenerateResponse`
+- [x] **Usage + finish reason in response** — extend `GenerateResponse`
   (`internal/proxy/request.go`) with `Usage{Input, Output, Total}` and `FinishReason`,
   read from the `*ai.ModelResponse` in `internal/proxy/generator.go`. Near-free and needed
   for metering/billing.

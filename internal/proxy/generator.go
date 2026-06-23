@@ -64,5 +64,15 @@ func (g GenkitGenerator) Generate(ctx context.Context, req GenerateRequest, apiK
 		Model:        req.ModelName,
 		Output:       resp.Text(),
 		FinishReason: string(resp.FinishReason),
+		Usage:        usageFrom(resp.Usage),
 	}, nil
+}
+
+// usageFrom maps Genkit's generation usage to the proxy's Usage, returning nil
+// when the provider reported no usage.
+func usageFrom(u *ai.GenerationUsage) *Usage {
+	if u == nil {
+		return nil
+	}
+	return &Usage{Input: u.InputTokens, Output: u.OutputTokens, Total: u.TotalTokens}
 }

@@ -14,6 +14,11 @@ import (
 // per-request API key.
 type Generator interface {
 	Generate(ctx context.Context, req GenerateRequest, apiKey string) (GenerateResponse, error)
+	// GenerateStream streams the completion, invoking onChunk for each text
+	// delta, and returns the final response (model, finish reason, usage). The
+	// streamed text is delivered only through onChunk, not in the returned
+	// response's Output.
+	GenerateStream(ctx context.Context, req GenerateRequest, apiKey string, onChunk func(delta string) error) (GenerateResponse, error)
 }
 
 // GenkitGenerator is the Genkit-backed Generator. It routes each request to the
@@ -46,6 +51,61 @@ func (g GenkitGenerator) Generate(ctx context.Context, req GenerateRequest, apiK
 
 	genkitApp := genkit.Init(ctx, genkit.WithPlugins(plugin))
 
+	resp, err := genkit.Generate(ctx, genkitApp, generateOptions(req)...)
+	if err != nil {
+		return GenerateResponse{}, fmt.Errorf("generate %q: %w", req.ModelName, err)
+	}
+	out := GenerateResponse{
+		Model:        req.ModelName,
+		FinishReason: string(resp.FinishReason),
+		Usage:        usageFrom(resp.Usage),
+	}
+	out.Output, out.Data = outputAndData(req, resp.Text())
+	return out, nil
+}
+
+// GenerateStream implements Generator using Genkit's streaming Generate API.
+func (g GenkitGenerator) GenerateStream(ctx context.Context, req GenerateRequest, apiKey string, onChunk func(delta string) error) (GenerateResponse, error) {
+	plugin, err := pluginFor(req.ModelName, apiKey)
+	if err != nil {
+		return GenerateResponse{}, err
+	}
+
+	if g.GenerateTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, g.GenerateTimeout)
+		defer cancel()
+	}
+
+	genkitApp := genkit.Init(ctx, genkit.WithPlugins(plugin))
+
+	var final *ai.ModelResponse
+	for value, streamErr := range genkit.GenerateStream(ctx, genkitApp, generateOptions(req)...) {
+		if streamErr != nil {
+			return GenerateResponse{}, fmt.Errorf("generate %q: %w", req.ModelName, streamErr)
+		}
+		if value.Done {
+			final = value.Response
+			break
+		}
+		if delta := value.Chunk.Text(); delta != "" {
+			if err := onChunk(delta); err != nil {
+				return GenerateResponse{}, err
+			}
+		}
+	}
+
+	out := GenerateResponse{Model: req.ModelName}
+	if final != nil {
+		out.FinishReason = string(final.FinishReason)
+		out.Usage = usageFrom(final.Usage)
+	}
+	return out, nil
+}
+
+// generateOptions builds the Genkit options shared by Generate and
+// GenerateStream from a validated request.
+func generateOptions(req GenerateRequest) []ai.GenerateOption {
 	opts := []ai.GenerateOption{
 		ai.WithModelName(req.ModelName),
 	}
@@ -67,18 +127,7 @@ func (g GenkitGenerator) Generate(ctx context.Context, req GenerateRequest, apiK
 			opts = append(opts, ai.WithOutputSchema(req.OutputSchema))
 		}
 	}
-
-	resp, err := genkit.Generate(ctx, genkitApp, opts...)
-	if err != nil {
-		return GenerateResponse{}, fmt.Errorf("generate %q: %w", req.ModelName, err)
-	}
-	out := GenerateResponse{
-		Model:        req.ModelName,
-		FinishReason: string(resp.FinishReason),
-		Usage:        usageFrom(resp.Usage),
-	}
-	out.Output, out.Data = outputAndData(req, resp.Text())
-	return out, nil
+	return opts
 }
 
 // outputAndData places the model's text into the response as structured Data

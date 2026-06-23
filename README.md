@@ -12,7 +12,7 @@ The service listens on `$PORT` (default `8080`) and is ready to run on Cloud Run
 
 ## Features
 
-- **One unified endpoint** for multiple LLM providers — callers speak a single request/response shape.
+- **One unified endpoint** for multiple LLM providers — callers speak a single request/response shape, with an SSE streaming variant at `POST /v1/generate/stream`.
 - **Provider routing by model prefix** — `googleai/…`, `openai/…`, `anthropic/…`, `vertexai/…` select the backend.
 - **Per-request credentials** — the bearer token is passed straight through to the upstream provider; nothing is configured server-side. (Exception: `vertexai` uses the proxy's own GCP credentials via ADC, so its bearer is a gate only and is not forwarded.)
 - **Generation controls & structured output** — optional `temperature`, `maxOutputTokens`, `topP`, `topK`, `stopSequences`, plus `responseFormat: "json"` with an optional `outputSchema` for machine-parseable JSON, and `messages` for multi-turn chat and multimodal (image/document) input.
@@ -155,6 +155,20 @@ Errors are returned as JSON:
 | `502` | Other upstream provider error. |
 | `504` | Upstream request timed out. |
 
+### Streaming
+
+`POST /v1/generate/stream` takes the same request body and streams the
+completion as Server-Sent Events: a `chunk` event (`{"delta":"…"}`) per text
+delta, a terminating `done` event (`{"model","finishReason","usage"}`), and an
+`error` event if generation fails after streaming has begun. See
+[`docs/api.md`](docs/api.md#post-v1generatestream) for the event reference.
+
+```bash
+curl -N -sS http://localhost:8080/v1/generate/stream \
+  -H "Authorization: Bearer $PROVIDER_API_KEY" \
+  -d '{"modelName":"googleai/gemini-2.5-flash","userMessage":"Tell me a short story."}'
+```
+
 ### Operational endpoints
 
 | Endpoint | Purpose |
@@ -226,6 +240,7 @@ checks and provider integration testing with `curl`.
 cmd/app/            Server binary: config loading, routing, lifecycle.
 internal/proxy/     Core gateway:
   proxy.go            HTTP handler — decode, authorize, respond.
+  stream.go           SSE streaming handler for /v1/generate/stream.
   generator.go        Genkit-backed generation per request.
   router.go           Provider selection and plugin construction.
   request.go          Request/response types and validation.

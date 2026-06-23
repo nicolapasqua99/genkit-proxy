@@ -18,15 +18,27 @@ import (
 
 // fakeGenerator records what it was called with and returns canned results.
 type fakeGenerator struct {
-	resp       GenerateResponse
-	err        error
-	gotKey     string
-	gotRequest GenerateRequest
+	resp         GenerateResponse
+	err          error
+	streamDeltas []string
+	gotKey       string
+	gotRequest   GenerateRequest
 }
 
 func (fakeGen *fakeGenerator) Generate(_ context.Context, req GenerateRequest, apiKey string) (GenerateResponse, error) {
 	fakeGen.gotKey = apiKey
 	fakeGen.gotRequest = req
+	return fakeGen.resp, fakeGen.err
+}
+
+func (fakeGen *fakeGenerator) GenerateStream(_ context.Context, req GenerateRequest, apiKey string, onChunk func(string) error) (GenerateResponse, error) {
+	fakeGen.gotKey = apiKey
+	fakeGen.gotRequest = req
+	for _, delta := range fakeGen.streamDeltas {
+		if err := onChunk(delta); err != nil {
+			return GenerateResponse{}, err
+		}
+	}
 	return fakeGen.resp, fakeGen.err
 }
 

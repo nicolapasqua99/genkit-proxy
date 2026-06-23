@@ -86,6 +86,23 @@ block it reads `"blocked"` and `output` is empty — that's how a caller
 distinguishes "the model declined" from "the model returned an empty string".
 `usage` is omitted when the provider reports no token counts.
 
+### Streaming (SSE) — valid key
+
+`POST /v1/generate/stream` takes the same body and streams Server-Sent Events.
+`-N` disables curl buffering so events print as they arrive.
+
+```bash
+curl -N -s -X POST localhost:8080/v1/generate/stream \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{"modelName":"openai/gpt-4o","userMessage":"count to five"}'
+# expect: a series of `event: chunk` / `data: {"delta":"..."}` lines, then
+#         `event: done` / `data: {"model":...,"finishReason":...,"usage":...}`
+```
+
+A bad key or other failure before the first byte returns an ordinary JSON error
+with the right status (as for `/v1/generate`); a failure mid-stream arrives as an
+`event: error` with a categorized message.
+
 ### Structured JSON output — valid key
 
 Request JSON by setting `responseFormat`; the parsed object comes back inline in

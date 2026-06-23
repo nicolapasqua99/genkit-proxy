@@ -8,6 +8,7 @@ response is JSON unless noted.
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
 | `POST` | `/v1/generate` | Bearer | Generate a completion via the selected provider. |
+| `POST` | `/v1/generate/stream` | Bearer | Stream a completion as Server-Sent Events. |
 | `GET` | `/metrics` | none | Prometheus exposition of request metrics. |
 | `GET` | `/healthz` | none | Liveness probe. |
 | `GET` | `/readyz` | none | Readiness probe. |
@@ -292,6 +293,52 @@ curl -sS http://localhost:8080/v1/generate \
         ]
       }'
 ```
+
+---
+
+## `POST /v1/generate/stream`
+
+Streams the same generation as it is produced, using
+[Server-Sent Events](https://developer.mozilla.org/docs/Web/API/Server-sent_events).
+The request body, headers, auth, and validation are **identical** to
+`POST /v1/generate` (including the per-provider auth notes above).
+
+On success the response is `200 OK` with `Content-Type: text/event-stream` and a
+sequence of named events:
+
+| Event | When | Data payload |
+|-------|------|--------------|
+| `chunk` | per text delta | `{"delta":"<text>"}` |
+| `done` | once, at the end | `{"model","finishReason","usage"}` (same fields as the non-stream response, minus `output`) |
+| `error` | a failure **after** streaming began | `{"error":"<categorized message>"}` |
+
+The streamed text is delivered only through `chunk` events; the `done` event
+carries the finish reason and token usage. A failure **before** the first byte is
+returned as an ordinary JSON error with the appropriate status (same status codes
+and sanitization as `/v1/generate`) — not as an `error` event.
+
+```
+event: chunk
+data: {"delta":"Hello"}
+
+event: chunk
+data: {"delta":" world"}
+
+event: done
+data: {"model":"googleai/gemini-2.5-flash","finishReason":"stop","usage":{"input":5,"output":2,"total":7}}
+```
+
+```bash
+# -N disables curl's buffering so events print as they arrive.
+curl -N -sS http://localhost:8080/v1/generate/stream \
+  -H "Authorization: Bearer $GOOGLEAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"modelName":"googleai/gemini-2.5-flash","userMessage":"Tell me a short story."}'
+```
+
+The per-request generation timeout (`GENERATE_TIMEOUT`) bounds the stream; the
+server's `WRITE_TIMEOUT` is not applied to streaming responses, so long
+generations are not cut off mid-stream.
 
 ---
 

@@ -131,3 +131,9 @@ func (writer *statusWriter) Write(data []byte) (int, error) {
 	writer.wroteHeader = true
 	return writer.ResponseWriter.Write(data)
 }
+
+// Unwrap exposes the wrapped ResponseWriter so http.ResponseController can reach
+// the underlying Flusher and deadline setter (used by the streaming handler).
+func (writer *statusWriter) Unwrap() http.ResponseWriter {
+	return writer.ResponseWriter
+}

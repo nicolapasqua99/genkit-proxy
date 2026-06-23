@@ -75,7 +75,8 @@ string.
 - **During validation** (`request.go`): empty `modelName`/`userMessage`, an
   out-of-range tuning field (`temperature`, `maxOutputTokens`, `topP`, `topK`),
   an invalid `responseFormat` or `outputSchema` without `responseFormat:"json"`,
-  or an unknown provider prefix → `400`.
+  a `messages` entry with a role other than `user`/`model` or empty content, or
+  an unknown provider prefix → `400`.
 - **During generation** (`generator.go` → provider SDK): everything classified
   by the tree above.
 

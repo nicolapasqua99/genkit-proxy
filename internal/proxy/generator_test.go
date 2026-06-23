@@ -35,6 +35,31 @@ func TestOutputAndData(t *testing.T) {
 	}
 }
 
+func TestMessagesFrom(t *testing.T) {
+	t.Run("no messages", func(t *testing.T) {
+		if got := messagesFrom(GenerateRequest{UserMessage: "hi"}); got != nil {
+			t.Errorf("messagesFrom() = %v, want nil", got)
+		}
+	})
+
+	t.Run("maps role and text in order", func(t *testing.T) {
+		req := GenerateRequest{Messages: []Message{
+			{Role: "user", Content: "hi"},
+			{Role: "model", Content: "hello"},
+		}}
+		got := messagesFrom(req)
+		if len(got) != 2 {
+			t.Fatalf("len = %d, want 2", len(got))
+		}
+		if got[0].Role != ai.RoleUser || got[0].Text() != "hi" {
+			t.Errorf("msg[0] = {%s, %q}, want {user, hi}", got[0].Role, got[0].Text())
+		}
+		if got[1].Role != ai.RoleModel || got[1].Text() != "hello" {
+			t.Errorf("msg[1] = {%s, %q}, want {model, hello}", got[1].Role, got[1].Text())
+		}
+	})
+}
+
 func TestConfigFor(t *testing.T) {
 	cases := []struct {
 		name string

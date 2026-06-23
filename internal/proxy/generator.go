@@ -53,6 +53,9 @@ func (g GenkitGenerator) Generate(ctx context.Context, req GenerateRequest, apiK
 	if req.SystemPrompt != "" {
 		opts = append(opts, ai.WithSystem(req.SystemPrompt))
 	}
+	if msgs := messagesFrom(req); msgs != nil {
+		opts = append(opts, ai.WithMessages(msgs...))
+	}
 	if cfg := configFor(req); cfg != nil {
 		opts = append(opts, ai.WithConfig(cfg))
 	}
@@ -84,6 +87,20 @@ func outputAndData(req GenerateRequest, text string) (string, json.RawMessage) {
 		return "", json.RawMessage(text)
 	}
 	return text, nil
+}
+
+// messagesFrom maps the request's conversation history to Genkit messages,
+// returning nil when there is none. Validation guarantees each role is "user"
+// or "model", so ai.Role conversion is safe.
+func messagesFrom(req GenerateRequest) []*ai.Message {
+	if len(req.Messages) == 0 {
+		return nil
+	}
+	msgs := make([]*ai.Message, len(req.Messages))
+	for i, message := range req.Messages {
+		msgs[i] = ai.NewTextMessage(ai.Role(message.Role), message.Content)
+	}
+	return msgs
 }
 
 // configFor builds the generation config from the request's optional tuning

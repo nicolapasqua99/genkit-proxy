@@ -13,7 +13,7 @@ request to keep tenant keys isolated. The service listens on `$PORT` (default
 - **One unified endpoint** for multiple LLM providers — callers speak a single request/response shape.
 - **Provider routing by model prefix** — `googleai/…`, `openai/…`, `anthropic/…` select the backend.
 - **Per-request credentials** — the bearer token is passed straight through to the upstream provider; nothing is configured server-side.
-- **Generation controls & structured output** — optional `temperature`, `maxOutputTokens`, `topP`, `topK`, `stopSequences`, plus `responseFormat: "json"` with an optional `outputSchema` for machine-parseable JSON.
+- **Generation controls & structured output** — optional `temperature`, `maxOutputTokens`, `topP`, `topK`, `stopSequences`, plus `responseFormat: "json"` with an optional `outputSchema` for machine-parseable JSON, and `messages` for multi-turn chat history.
 - **Safe error handling** — upstream/provider failures are classified and reduced to generic messages so internal details never leak; caller mistakes are reported verbatim.
 - **Observability** — structured `log/slog` logging with a per-request ID (`X-Request-ID`, UUID v4 fallback) and Prometheus metrics (request count, latency, and token counters) at `GET /metrics`.
 - **Production lifecycle** — panic recovery, configurable HTTP timeouts, and graceful shutdown on `SIGINT`/`SIGTERM`.
@@ -94,6 +94,7 @@ provider's API key.
 | `maxOutputTokens` / `topP` / `topK` | no | Generation controls (`≥ 1` / `0`–`1` / `≥ 1`). Provider defaults when omitted. |
 | `stopSequences` | no | Strings that halt generation when produced. |
 | `responseFormat` | no | `"json"` requests structured JSON output (optionally constrained by `outputSchema`, a JSON Schema). |
+| `messages` | no | Prior conversation turns (`{"role","content"}`, role `"user"` or `"model"`) for multi-turn chat; the current turn stays in `userMessage`. |
 
 See [`docs/api.md`](docs/api.md) for the full field reference and bounds.
 
@@ -133,7 +134,7 @@ Errors are returned as JSON:
 
 | Status | Cause |
 |--------|-------|
-| `400` | Invalid request (bad JSON, missing field, an out-of-range tuning field, or invalid `responseFormat`/`outputSchema`) or unsupported provider. |
+| `400` | Invalid request (bad JSON, missing field, an out-of-range tuning field, invalid `responseFormat`/`outputSchema`, or a bad `messages` entry) or unsupported provider. |
 | `401` | Missing/malformed bearer token, or upstream rejected the credentials. |
 | `403` | Upstream provider denied access. |
 | `404` | Requested model not found. |

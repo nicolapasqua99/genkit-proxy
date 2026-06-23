@@ -117,6 +117,47 @@ func TestMetricsMiddleware(t *testing.T) {
 		}
 	})
 
+	t.Run("records token counts when usage is present", func(t *testing.T) {
+		m, err := NewMetrics()
+		if err != nil {
+			t.Fatalf("NewMetrics: %v", err)
+		}
+		handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if slot := modelSlotFromContext(r.Context()); slot != nil {
+				slot.name = "googleai/gemini-2.5-flash"
+				slot.usage = &Usage{Input: 12, Output: 34, Total: 46}
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/generate", nil))
+
+		// Prometheus sorts labels alphabetically: kind, provider.
+		out := scrape(t, m)
+		for _, want := range []string{
+			`llm_tokens_total{kind="input",provider="googleai"} 12`,
+			`llm_tokens_total{kind="output",provider="googleai"} 34`,
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("scrape output missing %q\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("omits token metrics when usage is absent", func(t *testing.T) {
+		m, err := NewMetrics()
+		if err != nil {
+			t.Fatalf("NewMetrics: %v", err)
+		}
+		handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/healthz", nil))
+
+		if out := scrape(t, m); strings.Contains(out, "llm_tokens_total") {
+			t.Errorf("expected no token series without usage\n%s", out)
+		}
+	})
+
 	t.Run("reuses the model slot installed by Logger", func(t *testing.T) {
 		m, err := NewMetrics()
 		if err != nil {

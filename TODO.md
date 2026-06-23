@@ -59,8 +59,9 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   request with its upstream call and log line.
 - [x] **Metrics** — expose `/metrics` (OpenTelemetry / Prometheus): request count, latency
   histogram, and error rate by provider and status, via an OTel meter exported through a
-  dedicated Prometheus registry (`internal/proxy/metrics.go`). Token counters are deferred
-  until the Tier 2 "Usage + finish reason" item plumbs usage data through.
+  dedicated Prometheus registry (`internal/proxy/metrics.go`). Token counters (`llm_tokens_total`
+  by provider and `kind` input/output) are recorded from the per-request usage threaded through
+  the model slot.
 - [x] **Readiness + build/version endpoints** — add `/readyz` and `/version` (git SHA / build
   time via `-ldflags -X`). *Why:* `/healthz` is liveness-only; ops needs to confirm what's
   deployed.

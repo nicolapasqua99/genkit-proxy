@@ -30,6 +30,7 @@ var latencyBoundaries = []float64{0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60}
 type Metrics struct {
 	requests metric.Int64Counter
 	latency  metric.Float64Histogram
+	tokens   metric.Int64Counter
 	handler  http.Handler
 }
 
@@ -73,10 +74,18 @@ func NewMetrics() (*Metrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("metrics: latency histogram: %w", err)
 	}
+	tokens, err := meter.Int64Counter(
+		"llm_tokens",
+		metric.WithDescription("Total LLM tokens consumed, by provider and kind (input/output)."),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("metrics: tokens counter: %w", err)
+	}
 
 	return &Metrics{
 		requests: requests,
 		latency:  latency,
+		tokens:   tokens,
 		handler:  promhttp.HandlerFor(registry, promhttp.HandlerOpts{}),
 	}, nil
 }
@@ -109,13 +118,25 @@ func (m *Metrics) Middleware(next http.Handler) http.Handler {
 		if code == 0 {
 			code = http.StatusOK
 		}
+		provider := providerLabel(slot.name)
 		attrs := metric.WithAttributes(
 			attribute.String("method", httpReq.Method),
 			attribute.Int("status", code),
-			attribute.String("provider", providerLabel(slot.name)),
+			attribute.String("provider", provider),
 		)
 		m.requests.Add(ctx, 1, attrs)
 		m.latency.Record(ctx, time.Since(start).Seconds(), attrs)
+
+		if slot.usage != nil {
+			m.tokens.Add(ctx, int64(slot.usage.Input), metric.WithAttributes(
+				attribute.String("provider", provider),
+				attribute.String("kind", "input"),
+			))
+			m.tokens.Add(ctx, int64(slot.usage.Output), metric.WithAttributes(
+				attribute.String("provider", provider),
+				attribute.String("kind", "output"),
+			))
+		}
 	})
 }
 

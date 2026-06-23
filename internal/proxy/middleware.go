@@ -18,11 +18,14 @@ const (
 	modelKey
 )
 
-// modelSlot is a mutable holder for the model name. Logger stores a pointer to
-// one in the request context; the proxy Handler writes the decoded model name
-// into it so Logger can include it in the access log entry after the request
-// completes.
-type modelSlot struct{ name string }
+// modelSlot is a mutable holder for per-request generation metadata. Logger
+// stores a pointer to one in the request context; the proxy Handler writes the
+// decoded model name (and, on success, the token usage) into it so Logger and
+// the metrics Middleware can read them after the request completes.
+type modelSlot struct {
+	name  string
+	usage *Usage
+}
 
 // Recover wraps next so that a panic in a handler is logged and converted into
 // a clean 500 JSON response instead of dropping the connection. If the response

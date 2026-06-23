@@ -2,11 +2,26 @@ package proxy
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
 // responseFormatJSON is the only supported structured-output format.
 const responseFormatJSON = "json"
+
+// Conversation roles accepted in GenerateRequest.Messages.
+const (
+	roleUser  = "user"
+	roleModel = "model"
+)
+
+// Message is one prior turn in a multi-turn conversation.
+type Message struct {
+	// Role is the speaker: "user" or "model".
+	Role string `json:"role"`
+	// Content is the message text.
+	Content string `json:"content"`
+}
 
 // GenerateRequest is the generic payload accepted by the proxy.
 type GenerateRequest struct {
@@ -37,6 +52,9 @@ type GenerateRequest struct {
 	// OutputSchema optionally constrains JSON output to a JSON Schema. Valid only
 	// when ResponseFormat is "json".
 	OutputSchema map[string]any `json:"outputSchema,omitempty"`
+	// Messages optionally provides prior conversation turns. Each role must be
+	// "user" or "model"; the current turn is the separate UserMessage.
+	Messages []Message `json:"messages,omitempty"`
 }
 
 // GenerateResponse is the proxy's reply to a successful generation.
@@ -97,6 +115,14 @@ func (request GenerateRequest) Validate() error {
 	}
 	if len(request.OutputSchema) > 0 && request.ResponseFormat != responseFormatJSON {
 		return &ValidationError{Field: "outputSchema", Reason: `requires responseFormat "json"`}
+	}
+	for i, message := range request.Messages {
+		if message.Role != roleUser && message.Role != roleModel {
+			return &ValidationError{Field: fmt.Sprintf("messages[%d].role", i), Reason: `must be "user" or "model"`}
+		}
+		if strings.TrimSpace(message.Content) == "" {
+			return &ValidationError{Field: fmt.Sprintf("messages[%d].content", i), Reason: "must not be empty"}
+		}
 	}
 	return nil
 }

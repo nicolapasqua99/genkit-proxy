@@ -35,6 +35,10 @@ func TestGenerateRequestValidate(t *testing.T) {
 		{"json with output schema", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", ResponseFormat: "json", OutputSchema: map[string]any{"type": "object"}}, false},
 		{"unsupported response format", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", ResponseFormat: "xml"}, true},
 		{"output schema without json", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", OutputSchema: map[string]any{"type": "object"}}, true},
+		{"valid messages history", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "and then?", Messages: []Message{{Role: "user", Content: "hi"}, {Role: "model", Content: "hello"}}}, false},
+		{"message bad role", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", Messages: []Message{{Role: "assistant", Content: "hello"}}}, true},
+		{"message system role rejected", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", Messages: []Message{{Role: "system", Content: "hello"}}}, true},
+		{"message empty content", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", Messages: []Message{{Role: "user", Content: "  "}}}, true},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

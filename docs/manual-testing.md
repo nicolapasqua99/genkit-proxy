@@ -25,6 +25,7 @@ they work offline.
 | Wrong scheme | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Basic x' -d '{"modelName":"googleai/x","userMessage":"hi"}'` | `401` |
 | Empty model segment | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"googleai/","userMessage":"hi"}'` | `400`, `{"error":"invalid modelName: missing model after provider prefix"}` |
 | Unsupported provider | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"cohere/command","userMessage":"hi"}'` | `400` |
+| Bad message role | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"googleai/x","userMessage":"hi","messages":[{"role":"assistant","content":"hey"}]}'` | `400`, `{"error":"invalid messages[0].role: must be \"user\" or \"model\""}` |
 | Method not allowed | `curl -i localhost:8080/v1/generate` (GET) | `405` |
 
 ### Case-insensitive bearer scheme (RFC 7235)

@@ -1,6 +1,12 @@
 package proxy
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
+
+// responseFormatJSON is the only supported structured-output format.
+const responseFormatJSON = "json"
 
 // GenerateRequest is the generic payload accepted by the proxy.
 type GenerateRequest struct {
@@ -25,6 +31,12 @@ type GenerateRequest struct {
 	TopK *int `json:"topK,omitempty"`
 	// StopSequences optionally lists strings that halt generation when produced.
 	StopSequences []string `json:"stopSequences,omitempty"`
+	// ResponseFormat optionally requests structured output. The only supported
+	// value is "json"; empty means plain text.
+	ResponseFormat string `json:"responseFormat,omitempty"`
+	// OutputSchema optionally constrains JSON output to a JSON Schema. Valid only
+	// when ResponseFormat is "json".
+	OutputSchema map[string]any `json:"outputSchema,omitempty"`
 }
 
 // GenerateResponse is the proxy's reply to a successful generation.
@@ -38,6 +50,9 @@ type GenerateResponse struct {
 	// "stop", "length", "blocked", "interrupted", "other", "unknown".
 	// Omitted when the provider did not report a reason.
 	FinishReason string `json:"finishReason,omitempty"`
+	// Data carries the structured JSON output when JSON mode was requested and the
+	// model returned valid JSON. Omitted for plain-text responses.
+	Data json.RawMessage `json:"data,omitempty"`
 	// Usage reports token consumption. Omitted when the provider reported none.
 	Usage *Usage `json:"usage,omitempty"`
 }
@@ -76,6 +91,12 @@ func (request GenerateRequest) Validate() error {
 	}
 	if request.TopK != nil && *request.TopK < 1 {
 		return &ValidationError{Field: "topK", Reason: "must be at least 1"}
+	}
+	if request.ResponseFormat != "" && request.ResponseFormat != responseFormatJSON {
+		return &ValidationError{Field: "responseFormat", Reason: `must be "json" when set`}
+	}
+	if len(request.OutputSchema) > 0 && request.ResponseFormat != responseFormatJSON {
+		return &ValidationError{Field: "outputSchema", Reason: `requires responseFormat "json"`}
 	}
 	return nil
 }

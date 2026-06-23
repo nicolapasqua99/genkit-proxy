@@ -9,6 +9,32 @@ import (
 	"github.com/firebase/genkit/go/ai"
 )
 
+func TestOutputAndData(t *testing.T) {
+	cases := []struct {
+		name       string
+		req        GenerateRequest
+		text       string
+		wantOutput string
+		wantData   json.RawMessage
+	}{
+		{"text mode", GenerateRequest{}, "hello", "hello", nil},
+		{"json mode valid", GenerateRequest{ResponseFormat: "json"}, `{"a":1}`, "", json.RawMessage(`{"a":1}`)},
+		{"json mode invalid falls back to output", GenerateRequest{ResponseFormat: "json"}, "not json", "not json", nil},
+		{"json mode empty", GenerateRequest{ResponseFormat: "json"}, "", "", nil},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			gotOutput, gotData := outputAndData(testCase.req, testCase.text)
+			if gotOutput != testCase.wantOutput {
+				t.Errorf("output = %q, want %q", gotOutput, testCase.wantOutput)
+			}
+			if !reflect.DeepEqual(gotData, testCase.wantData) {
+				t.Errorf("data = %s, want %s", gotData, testCase.wantData)
+			}
+		})
+	}
+}
+
 func TestConfigFor(t *testing.T) {
 	cases := []struct {
 		name string

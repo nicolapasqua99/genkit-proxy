@@ -80,9 +80,11 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   `topP 0–1`, `topK >= 1`). **Provider-specific bounds remain unhandled** (as with temperature):
   the generic temperature `0–2` still passes e.g. `1.5` to Anthropic (max `1.0`); a value a
   provider rejects surfaces as the upstream error's classified status, not a pre-validation `400`.
-- [ ] **Structured / JSON output** — pass an output schema / response format through
-  `ai.WithOutputType` so callers can request JSON mode. *Why:* the proxy returns plain text
-  only, which blocks any app that needs machine-parseable output.
+- [x] **Structured / JSON output** — `responseFormat: "json"` (optionally with an `outputSchema`
+  JSON Schema) on `GenerateRequest` maps to `ai.WithOutputFormat` / `ai.WithOutputSchema` in
+  `internal/proxy/generator.go`. Valid JSON is returned inline in the response `data` field
+  (`json.RawMessage`); non-JSON falls back to `output`. *Why:* the proxy previously returned plain
+  text only, which blocked any app that needs machine-parseable output.
 - [ ] **Streaming (SSE)** — new `POST /v1/generate/stream` backed by
   `genkit.GenerateStream`, emitting `text/event-stream` with `http.Flusher`. Biggest
   chat-UX win.

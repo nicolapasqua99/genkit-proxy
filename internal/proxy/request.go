@@ -15,12 +15,32 @@ const (
 	roleModel = "model"
 )
 
-// Message is one prior turn in a multi-turn conversation.
+// Message is one turn in a conversation. Provide exactly one of Content (text
+// shorthand) or Parts (multimodal: text and/or media).
 type Message struct {
 	// Role is the speaker: "user" or "model".
 	Role string `json:"role"`
-	// Content is the message text.
-	Content string `json:"content"`
+	// Content is the message text. Use this or Parts, not both.
+	Content string `json:"content,omitempty"`
+	// Parts is the multimodal content. Use this or Content, not both.
+	Parts []Part `json:"parts,omitempty"`
+}
+
+// Part is one piece of a message's content: exactly one of Text or Media.
+type Part struct {
+	// Text is a plain-text part.
+	Text string `json:"text,omitempty"`
+	// Media is a non-text part (image, document, ...).
+	Media *Media `json:"media,omitempty"`
+}
+
+// Media is a non-text part: an image or document referenced by an https:// URL
+// or a "data:" URL with embedded base64 data.
+type Media struct {
+	// ContentType is the media MIME type, e.g. "image/png".
+	ContentType string `json:"contentType"`
+	// URL is an https:// or "data:" URL locating the media.
+	URL string `json:"url"`
 }
 
 // GenerateRequest is the generic payload accepted by the proxy.
@@ -30,8 +50,9 @@ type GenerateRequest struct {
 	ModelName string `json:"modelName"`
 	// SystemPrompt is the optional system instruction.
 	SystemPrompt string `json:"systemPrompt,omitempty"`
-	// UserMessage is the user prompt sent to the model.
-	UserMessage string `json:"userMessage"`
+	// UserMessage is the user prompt sent to the model. Required unless Messages
+	// is provided.
+	UserMessage string `json:"userMessage,omitempty"`
 	// Temperature optionally controls sampling randomness. When nil the
 	// provider default is used.
 	Temperature *float64 `json:"temperature,omitempty"`
@@ -95,8 +116,8 @@ func (request GenerateRequest) Validate() error {
 	if _, err := providerOf(request.ModelName); err != nil {
 		return err
 	}
-	if strings.TrimSpace(request.UserMessage) == "" {
-		return &ValidationError{Field: "userMessage", Reason: "must not be empty"}
+	if strings.TrimSpace(request.UserMessage) == "" && len(request.Messages) == 0 {
+		return &ValidationError{Field: "userMessage", Reason: "must not be empty when messages is omitted"}
 	}
 	if request.Temperature != nil && (*request.Temperature < 0 || *request.Temperature > 2) {
 		return &ValidationError{Field: "temperature", Reason: "must be between 0 and 2"}
@@ -120,8 +141,33 @@ func (request GenerateRequest) Validate() error {
 		if message.Role != roleUser && message.Role != roleModel {
 			return &ValidationError{Field: fmt.Sprintf("messages[%d].role", i), Reason: `must be "user" or "model"`}
 		}
-		if strings.TrimSpace(message.Content) == "" {
-			return &ValidationError{Field: fmt.Sprintf("messages[%d].content", i), Reason: "must not be empty"}
+		hasContent := strings.TrimSpace(message.Content) != ""
+		hasParts := len(message.Parts) > 0
+		if hasContent == hasParts {
+			return &ValidationError{Field: fmt.Sprintf("messages[%d]", i), Reason: "must set exactly one of content or parts"}
+		}
+		for j, part := range message.Parts {
+			if err := part.validate(i, j); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// validate reports the first problem with a part within messages[i].parts[j].
+func (part Part) validate(i, j int) error {
+	hasText := strings.TrimSpace(part.Text) != ""
+	hasMedia := part.Media != nil
+	if hasText == hasMedia {
+		return &ValidationError{Field: fmt.Sprintf("messages[%d].parts[%d]", i, j), Reason: "must set exactly one of text or media"}
+	}
+	if hasMedia {
+		if strings.TrimSpace(part.Media.ContentType) == "" {
+			return &ValidationError{Field: fmt.Sprintf("messages[%d].parts[%d].media.contentType", i, j), Reason: "must not be empty"}
+		}
+		if strings.TrimSpace(part.Media.URL) == "" {
+			return &ValidationError{Field: fmt.Sprintf("messages[%d].parts[%d].media.url", i, j), Reason: "must not be empty"}
 		}
 	}
 	return nil

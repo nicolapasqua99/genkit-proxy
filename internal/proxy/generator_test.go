@@ -58,6 +58,27 @@ func TestMessagesFrom(t *testing.T) {
 			t.Errorf("msg[1] = {%s, %q}, want {model, hello}", got[1].Role, got[1].Text())
 		}
 	})
+
+	t.Run("maps multimodal parts", func(t *testing.T) {
+		req := GenerateRequest{Messages: []Message{{
+			Role: "user",
+			Parts: []Part{
+				{Text: "what is this?"},
+				{Media: &Media{ContentType: "image/png", URL: "data:image/png;base64,AAAA"}},
+			},
+		}}}
+		got := messagesFrom(req)
+		if len(got) != 1 || len(got[0].Content) != 2 {
+			t.Fatalf("parts = %d, want a single message with 2 parts", len(got))
+		}
+		text, media := got[0].Content[0], got[0].Content[1]
+		if !text.IsText() || text.Text != "what is this?" {
+			t.Errorf("part[0] = %+v, want text %q", text, "what is this?")
+		}
+		if !media.IsMedia() || media.ContentType != "image/png" {
+			t.Errorf("part[1] = %+v, want media image/png", media)
+		}
+	})
 }
 
 func TestConfigFor(t *testing.T) {

@@ -73,11 +73,12 @@ string.
 - **Before any provider call** (handled directly in `proxy.go`, not via
   `classify`): a non-`POST` method → `405`; a missing/malformed bearer token →
   `401` (`ErrMissingCredentials`); an unparseable or oversized body → `400`.
-- **During validation** (`request.go`): empty `modelName`/`userMessage`, an
-  out-of-range tuning field (`temperature`, `maxOutputTokens`, `topP`, `topK`),
-  an invalid `responseFormat` or `outputSchema` without `responseFormat:"json"`,
-  a `messages` entry with a role other than `user`/`model` or empty content, or
-  an unknown provider prefix → `400`.
+- **During validation** (`request.go`): empty `modelName`, neither `userMessage`
+  nor `messages`, an out-of-range tuning field (`temperature`, `maxOutputTokens`,
+  `topP`, `topK`), an invalid `responseFormat` or `outputSchema` without
+  `responseFormat:"json"`, a malformed `messages` entry (bad role, not exactly one
+  of `content`/`parts`, a `parts` entry not exactly one of `text`/`media`, or
+  `media` missing `contentType`/`url`), or an unknown provider prefix → `400`.
 - **During generation** (`generator.go` → provider SDK): everything classified
   by the tree above.
 

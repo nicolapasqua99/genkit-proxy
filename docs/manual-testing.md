@@ -26,6 +26,7 @@ they work offline.
 | Empty model segment | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"googleai/","userMessage":"hi"}'` | `400`, `{"error":"invalid modelName: missing model after provider prefix"}` |
 | Unsupported provider | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"cohere/command","userMessage":"hi"}'` | `400` |
 | Bad message role | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"googleai/x","userMessage":"hi","messages":[{"role":"assistant","content":"hey"}]}'` | `400`, `{"error":"invalid messages[0].role: must be \"user\" or \"model\""}` |
+| Empty message part | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"googleai/x","messages":[{"role":"user","parts":[{}]}]}'` | `400`, `{"error":"invalid messages[0].parts[0]: must set exactly one of text or media"}` |
 | Method not allowed | `curl -i localhost:8080/v1/generate` (GET) | `405` |
 
 ### Case-insensitive bearer scheme (RFC 7235)
@@ -114,6 +115,22 @@ curl -s -X POST localhost:8080/v1/generate \
 
 If project/location or ADC are missing, the request fails with a classified
 upstream error (not a crash), and the raw detail is logged server-side only.
+
+### Multimodal input — vision-capable model
+
+Send text + media in one user turn via `messages` parts (no `userMessage`
+needed). `media.url` can be an `https://` URL or a `data:` URL with base64; keep
+inline `data:` URLs under the 1 MiB body cap.
+
+```bash
+curl -s -X POST localhost:8080/v1/generate \
+  -H "Authorization: Bearer $GOOGLEAI_API_KEY" \
+  -d '{"modelName":"googleai/gemini-2.5-flash","messages":[{"role":"user","parts":[
+        {"text":"What is in this image?"},
+        {"media":{"contentType":"image/png","url":"https://example.com/cat.png"}}
+      ]}]}'
+# expect: a description of the image (requires a vision-capable model)
+```
 
 ## Behaviors that are test-only
 

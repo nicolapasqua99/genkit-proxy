@@ -39,7 +39,7 @@ Body (`GenerateRequest`, max 1 MiB, unknown fields rejected):
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `modelName` | string | yes | Provider-prefixed model id; the prefix selects the provider. |
-| `userMessage` | string | yes | The user prompt. |
+| `userMessage` | string | conditional | The current user prompt. Required **unless** `messages` is provided. |
 | `systemPrompt` | string | no | Optional system instruction. |
 | `temperature` | number | no | Sampling randomness, `0`–`2`. Provider default when omitted. |
 | `maxOutputTokens` | integer | no | Caps generated tokens, `≥ 1`. Provider default when omitted. |
@@ -48,7 +48,18 @@ Body (`GenerateRequest`, max 1 MiB, unknown fields rejected):
 | `stopSequences` | string[] | no | Strings that halt generation when produced. |
 | `responseFormat` | string | no | `"json"` requests structured JSON output. Omit for plain text. |
 | `outputSchema` | object | no | A JSON Schema the JSON output must conform to. Valid only with `responseFormat: "json"`. |
-| `messages` | object[] | no | Prior conversation turns, each `{"role","content"}` with `role` either `"user"` or `"model"`. The current turn is the separate `userMessage`; history is sent before it. |
+| `messages` | object[] | no | Conversation turns sent before `userMessage`. Each entry has a `role` (`"user"` or `"model"`) and **exactly one** of `content` (text) or `parts` (multimodal). |
+
+Each `parts` entry has **exactly one** of:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `text` | string | A plain-text part. |
+| `media` | object | `{"contentType","url"}` — `contentType` is a MIME type (e.g. `image/png`); `url` is an `https://` URL or a `data:` URL with embedded base64. |
+
+A request must include `userMessage`, `messages`, or both. Multimodal (vision/document)
+input goes in a `messages` part with `media`. Note the **1 MiB body cap** limits inline
+`data:` URLs; prefer `https://` URLs for large media.
 
 ```json
 {
@@ -102,7 +113,7 @@ it falls back to `output` so `data` is never malformed:
 | Status | Cause |
 |--------|-------|
 | `200` | Success. |
-| `400` | Invalid request (bad JSON, unknown field, missing field, an out-of-range tuning field — temperature / maxOutputTokens / topP / topK — an invalid `responseFormat` / `outputSchema`, or a `messages` entry with a bad role or empty content) or unsupported provider. |
+| `400` | Invalid request (bad JSON, unknown field, neither `userMessage` nor `messages`, an out-of-range tuning field — temperature / maxOutputTokens / topP / topK — an invalid `responseFormat` / `outputSchema`, or a malformed `messages` / `parts` / `media` entry) or unsupported provider. |
 | `401` | Missing/malformed bearer token, or upstream rejected the credentials. |
 | `403` | Upstream provider denied access. |
 | `404` | Requested model not found. |
@@ -154,7 +165,7 @@ sequenceDiagram
         X-->>C: 405 {error: "method not allowed"}
     else missing / malformed bearer token
         X-->>C: 401 {error: "missing or malformed Authorization bearer token"}
-    else bad JSON, unknown field, missing field, out-of-range tuning field, invalid responseFormat/outputSchema, bad messages entry, or unsupported provider
+    else bad JSON, unknown field, no userMessage/messages, out-of-range tuning field, invalid responseFormat/outputSchema, malformed messages/parts/media, or unsupported provider
         X-->>C: 400 {error: "<validation detail>"}
     end
     Note over X,P: provider is never called
@@ -266,6 +277,20 @@ curl -sS http://localhost:8080/v1/generate \
 curl -sS http://localhost:8080/v1/generate \
   -H "Authorization: Bearer any-gate-token" \
   -d '{"modelName":"vertexai/gemini-2.5-flash","userMessage":"Say hello."}'
+
+# Multimodal (vision): text + image in one user turn via "messages" parts (no userMessage)
+curl -sS http://localhost:8080/v1/generate \
+  -H "Authorization: Bearer $GOOGLEAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "modelName": "googleai/gemini-2.5-flash",
+        "messages": [
+          {"role": "user", "parts": [
+            {"text": "What is in this image?"},
+            {"media": {"contentType": "image/png", "url": "https://example.com/cat.png"}}
+          ]}
+        ]
+      }'
 ```
 
 ---

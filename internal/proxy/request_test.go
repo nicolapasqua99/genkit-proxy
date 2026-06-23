@@ -39,6 +39,15 @@ func TestGenerateRequestValidate(t *testing.T) {
 		{"message bad role", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", Messages: []Message{{Role: "assistant", Content: "hello"}}}, true},
 		{"message system role rejected", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", Messages: []Message{{Role: "system", Content: "hello"}}}, true},
 		{"message empty content", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", Messages: []Message{{Role: "user", Content: "  "}}}, true},
+		{"messages only no userMessage", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "user", Content: "hi"}}}, false},
+		{"neither userMessage nor messages", GenerateRequest{ModelName: "googleai/gemini-2.5-flash"}, true},
+		{"message both content and parts", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "user", Content: "hi", Parts: []Part{{Text: "hi"}}}}}, true},
+		{"message neither content nor parts", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "user"}}}, true},
+		{"valid multimodal parts", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "user", Parts: []Part{{Text: "what is this?"}, {Media: &Media{ContentType: "image/png", URL: "data:image/png;base64,AAAA"}}}}}}, false},
+		{"part both text and media", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "user", Parts: []Part{{Text: "hi", Media: &Media{ContentType: "image/png", URL: "u"}}}}}}, true},
+		{"part neither text nor media", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "user", Parts: []Part{{}}}}}, true},
+		{"media missing contentType", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "user", Parts: []Part{{Media: &Media{URL: "u"}}}}}}, true},
+		{"media missing url", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "user", Parts: []Part{{Media: &Media{ContentType: "image/png"}}}}}}, true},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

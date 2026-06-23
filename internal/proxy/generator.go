@@ -48,7 +48,9 @@ func (g GenkitGenerator) Generate(ctx context.Context, req GenerateRequest, apiK
 
 	opts := []ai.GenerateOption{
 		ai.WithModelName(req.ModelName),
-		ai.WithPrompt(req.UserMessage),
+	}
+	if req.UserMessage != "" {
+		opts = append(opts, ai.WithPrompt(req.UserMessage))
 	}
 	if req.SystemPrompt != "" {
 		opts = append(opts, ai.WithSystem(req.SystemPrompt))
@@ -98,6 +100,18 @@ func messagesFrom(req GenerateRequest) []*ai.Message {
 	}
 	msgs := make([]*ai.Message, len(req.Messages))
 	for i, message := range req.Messages {
+		if len(message.Parts) > 0 {
+			parts := make([]*ai.Part, len(message.Parts))
+			for j, part := range message.Parts {
+				if part.Media != nil {
+					parts[j] = ai.NewMediaPart(part.Media.ContentType, part.Media.URL)
+				} else {
+					parts[j] = ai.NewTextPart(part.Text)
+				}
+			}
+			msgs[i] = ai.NewMessage(ai.Role(message.Role), nil, parts...)
+			continue
+		}
 		msgs[i] = ai.NewTextMessage(ai.Role(message.Role), message.Content)
 	}
 	return msgs

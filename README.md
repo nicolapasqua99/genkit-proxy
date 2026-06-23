@@ -15,7 +15,7 @@ The service listens on `$PORT` (default `8080`) and is ready to run on Cloud Run
 - **One unified endpoint** for multiple LLM providers — callers speak a single request/response shape.
 - **Provider routing by model prefix** — `googleai/…`, `openai/…`, `anthropic/…`, `vertexai/…` select the backend.
 - **Per-request credentials** — the bearer token is passed straight through to the upstream provider; nothing is configured server-side. (Exception: `vertexai` uses the proxy's own GCP credentials via ADC, so its bearer is a gate only and is not forwarded.)
-- **Generation controls & structured output** — optional `temperature`, `maxOutputTokens`, `topP`, `topK`, `stopSequences`, plus `responseFormat: "json"` with an optional `outputSchema` for machine-parseable JSON, and `messages` for multi-turn chat history.
+- **Generation controls & structured output** — optional `temperature`, `maxOutputTokens`, `topP`, `topK`, `stopSequences`, plus `responseFormat: "json"` with an optional `outputSchema` for machine-parseable JSON, and `messages` for multi-turn chat and multimodal (image/document) input.
 - **Safe error handling** — upstream/provider failures are classified and reduced to generic messages so internal details never leak; caller mistakes are reported verbatim.
 - **Observability** — structured `log/slog` logging with a per-request ID (`X-Request-ID`, UUID v4 fallback) and Prometheus metrics (request count, latency, and token counters) at `GET /metrics`.
 - **Production lifecycle** — panic recovery, configurable HTTP timeouts, and graceful shutdown on `SIGINT`/`SIGTERM`.
@@ -99,13 +99,13 @@ provider's API key.
 | Field | Required | Description |
 |-------|----------|-------------|
 | `modelName` | yes | Provider-prefixed model identifier; the prefix selects the provider. |
-| `userMessage` | yes | The user prompt. |
+| `userMessage` | conditional | The current user prompt. Required unless `messages` is provided. |
 | `systemPrompt` | no | Optional system instruction. |
 | `temperature` | no | Sampling randomness, `0`–`2`. Provider default when omitted. |
 | `maxOutputTokens` / `topP` / `topK` | no | Generation controls (`≥ 1` / `0`–`1` / `≥ 1`). Provider defaults when omitted. |
 | `stopSequences` | no | Strings that halt generation when produced. |
 | `responseFormat` | no | `"json"` requests structured JSON output (optionally constrained by `outputSchema`, a JSON Schema). |
-| `messages` | no | Prior conversation turns (`{"role","content"}`, role `"user"` or `"model"`) for multi-turn chat; the current turn stays in `userMessage`. |
+| `messages` | no | Conversation turns (role `"user"`/`"model"`) for multi-turn chat and multimodal input. Each entry carries `content` (text) or `parts` — a list of `{"text"}` / `{"media":{"contentType","url"}}` for images/documents. A request needs `userMessage` or `messages`. |
 
 See [`docs/api.md`](docs/api.md) for the full field reference and bounds.
 
@@ -145,7 +145,7 @@ Errors are returned as JSON:
 
 | Status | Cause |
 |--------|-------|
-| `400` | Invalid request (bad JSON, missing field, an out-of-range tuning field, invalid `responseFormat`/`outputSchema`, or a bad `messages` entry) or unsupported provider. |
+| `400` | Invalid request (bad JSON, neither `userMessage` nor `messages`, an out-of-range tuning field, invalid `responseFormat`/`outputSchema`, or a malformed `messages`/`parts`/`media` entry) or unsupported provider. |
 | `401` | Missing/malformed bearer token, or upstream rejected the credentials. |
 | `403` | Upstream provider denied access. |
 | `404` | Requested model not found. |

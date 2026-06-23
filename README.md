@@ -2,17 +2,19 @@
 
 A model-agnostic AI HTTP gateway built on [Firebase Genkit](https://firebase.google.com/docs/genkit).
 It exposes a single `POST /v1/generate` endpoint and forwards each request to
-Google AI, OpenAI, or Anthropic — chosen from the model-name prefix — using the
-API key supplied per request in the `Authorization` header. Credentials are never
-stored or shared: a fresh, single-provider Genkit plugin is built for every
-request to keep tenant keys isolated. The service listens on `$PORT` (default
-`8080`) and is ready to run on Cloud Run.
+Google AI, OpenAI, Anthropic, or Vertex AI — chosen from the model-name prefix.
+For the API-key providers the key is supplied per request in the `Authorization`
+header and never stored or shared: a fresh, single-provider Genkit plugin is built
+for every request to keep tenant keys isolated. Vertex AI is the exception — it
+authenticates with the proxy's own Google Cloud credentials (ADC), so those
+requests are not per-tenant (see [supported providers](#supported-providers)).
+The service listens on `$PORT` (default `8080`) and is ready to run on Cloud Run.
 
 ## Features
 
 - **One unified endpoint** for multiple LLM providers — callers speak a single request/response shape.
-- **Provider routing by model prefix** — `googleai/…`, `openai/…`, `anthropic/…` select the backend.
-- **Per-request credentials** — the bearer token is passed straight through to the upstream provider; nothing is configured server-side.
+- **Provider routing by model prefix** — `googleai/…`, `openai/…`, `anthropic/…`, `vertexai/…` select the backend.
+- **Per-request credentials** — the bearer token is passed straight through to the upstream provider; nothing is configured server-side. (Exception: `vertexai` uses the proxy's own GCP credentials via ADC, so its bearer is a gate only and is not forwarded.)
 - **Generation controls & structured output** — optional `temperature`, `maxOutputTokens`, `topP`, `topK`, `stopSequences`, plus `responseFormat: "json"` with an optional `outputSchema` for machine-parseable JSON, and `messages` for multi-turn chat history.
 - **Safe error handling** — upstream/provider failures are classified and reduced to generic messages so internal details never leak; caller mistakes are reported verbatim.
 - **Observability** — structured `log/slog` logging with a per-request ID (`X-Request-ID`, UUID v4 fallback) and Prometheus metrics (request count, latency, and token counters) at `GET /metrics`.
@@ -20,11 +22,20 @@ request to keep tenant keys isolated. The service listens on `$PORT` (default
 
 ### Supported providers
 
-| Provider | Model prefix | Example model |
-|----------|--------------|---------------|
-| Google AI | `googleai` | `googleai/gemini-2.5-flash` |
-| OpenAI | `openai` | `openai/gpt-4o` |
-| Anthropic | `anthropic` | `anthropic/claude-3-5-sonnet` |
+| Provider | Model prefix | Example model | Auth |
+|----------|--------------|---------------|------|
+| Google AI | `googleai` | `googleai/gemini-2.5-flash` | Bearer API key (per request) |
+| OpenAI | `openai` | `openai/gpt-4o` | Bearer API key (per request) |
+| Anthropic | `anthropic` | `anthropic/claude-3-5-sonnet` | Bearer API key (per request) |
+| Vertex AI | `vertexai` | `vertexai/gemini-2.5-flash` | GCP ADC (server identity); bearer not forwarded |
+
+Vertex AI authenticates with the proxy's Google Cloud Application Default
+Credentials rather than a caller-supplied key, and reads its project/location
+from `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION` (or `GOOGLE_CLOUD_REGION`).
+A bearer token is still required on every request as a coarse access gate, but
+for `vertexai` it is **not** sent upstream — those calls run under the proxy's
+shared GCP identity and billing. Per-tenant gateway auth is tracked separately in
+[`TODO.md`](TODO.md).
 
 ## Architecture
 
@@ -168,6 +179,16 @@ supplied per request in the `Authorization` header.
 | `WRITE_TIMEOUT` | `120s` | Max time to write the response. |
 | `IDLE_TIMEOUT` | `60s` | Max keep-alive idle time. |
 | `GENERATE_TIMEOUT` | `30s` | Max time for the upstream generation call. |
+
+The variables above are read by the proxy itself. **Vertex AI** additionally
+relies on standard Google Cloud environment, read by the Genkit/GCP SDK (not by
+the proxy), and only needed when serving `vertexai/…` models:
+
+| Variable | Description |
+|----------|-------------|
+| `GOOGLE_CLOUD_PROJECT` | GCP project for Vertex AI requests. |
+| `GOOGLE_CLOUD_LOCATION` / `GOOGLE_CLOUD_REGION` | Vertex AI location/region. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | ADC credentials (auto-provided by the service account on Cloud Run). |
 
 ## Quick start
 

@@ -19,7 +19,11 @@ response is JSON unless noted.
 
 Generates a completion. The provider is chosen from the `modelName` prefix; the
 `Authorization: Bearer <api-key>` header carries that provider's API key, which
-is forwarded upstream and never stored.
+is forwarded upstream and never stored. The exception is `vertexai`, which
+authenticates with the proxy's Google Cloud credentials (ADC): a bearer token is
+still required as a coarse gate but is **not** forwarded upstream, and the
+project/location come from `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` (see
+[architecture](architecture.md#provider-routing)).
 
 ### Request
 
@@ -256,6 +260,12 @@ curl -sS http://localhost:8080/v1/generate \
         ],
         "userMessage": "What is my name?"
       }'
+
+# Vertex AI: authenticates via the proxy's GCP credentials (ADC); the bearer is a
+# gate only and is not forwarded. Requires GOOGLE_CLOUD_PROJECT / GOOGLE_CLOUD_LOCATION.
+curl -sS http://localhost:8080/v1/generate \
+  -H "Authorization: Bearer any-gate-token" \
+  -d '{"modelName":"vertexai/gemini-2.5-flash","userMessage":"Say hello."}'
 ```
 
 ---

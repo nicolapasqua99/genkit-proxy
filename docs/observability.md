@@ -80,8 +80,8 @@ Histogram buckets (seconds), spanning fast probes through slow generations:
 `0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60` (`metrics.go:24`).
 
 The `provider` label is the model-name prefix (`googleai`, `openai`,
-`anthropic`), or empty for non-generation routes such as health checks
-(`providerLabel`, `metrics.go:125`).
+`anthropic`, `vertexai`), or empty for non-generation routes such as health
+checks (`providerLabel`, `metrics.go:125`).
 
 `llm_tokens_total` is recorded only for generations that report usage, with one
 series per `kind` — `input` and `output` (no `total`; it is derivable). It is

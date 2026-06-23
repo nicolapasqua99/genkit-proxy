@@ -16,6 +16,8 @@ func TestProviderOf(t *testing.T) {
 		{"googleai", "googleai/gemini-2.5-flash", "googleai", false, false},
 		{"openai", "openai/gpt-4o", "openai", false, false},
 		{"anthropic", "anthropic/claude-3-5-sonnet", "anthropic", false, false},
+		{"vertexai", "vertexai/gemini-2.5-flash", "vertexai", false, false},
+		{"vertexai empty model segment", "vertexai/", "", true, true},
 		{"nested path", "googleai/models/gemini", "googleai", false, false},
 		{"no slash", "gemini-2.5-flash", "", true, false},
 		{"empty provider", "/gemini", "", true, false},
@@ -58,6 +60,7 @@ func TestPluginFor(t *testing.T) {
 		{"googleai", "googleai/gemini-2.5-flash", false},
 		{"openai", "openai/gpt-4o", false},
 		{"anthropic", "anthropic/claude-3-5-sonnet", false},
+		{"vertexai", "vertexai/gemini-2.5-flash", false},
 		{"unsupported", "cohere/command", true},
 		{"empty model segment", "googleai/", true},
 	}

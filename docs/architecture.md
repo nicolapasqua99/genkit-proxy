@@ -23,11 +23,14 @@ graph LR
     proxy -->|"googleai/*"| google["Google AI"]
     proxy -->|"openai/*"| openai["OpenAI"]
     proxy -->|"anthropic/*"| anthropic["Anthropic"]
+    proxy -->|"vertexai/* (ADC)"| vertex["Vertex AI"]
 ```
 
-The caller speaks one request/response shape regardless of provider. The bearer
-token is passed straight through to the upstream provider; nothing is configured
-server-side.
+The caller speaks one request/response shape regardless of provider. For the
+API-key providers the bearer token is passed straight through to the upstream
+provider; nothing is configured server-side. `vertexai` is the exception: it
+authenticates with the proxy's own Google Cloud credentials (ADC) and its bearer
+is a gate only, not forwarded.
 
 ## Components
 
@@ -231,16 +234,19 @@ flowchart TD
     ok -->|googleai| g["googlegenai.GoogleAI{APIKey}"]
     ok -->|openai| o["openai.OpenAI{APIKey}"]
     ok -->|anthropic| a["anthropic.Anthropic{WithAPIKey}"]
+    ok -->|vertexai| v["googlegenai.VertexAI{} (ADC + env)"]
     g --> plug([api.Plugin])
     o --> plug
     a --> plug
+    v --> plug
 ```
 
-| Provider | Prefix | Plugin (Genkit) |
-|----------|--------|-----------------|
-| Google AI | `googleai` | `plugins/googlegenai` |
-| OpenAI | `openai` | `plugins/compat_oai/openai` |
-| Anthropic | `anthropic` | `plugins/compat_oai/anthropic` |
+| Provider | Prefix | Plugin (Genkit) | Auth |
+|----------|--------|-----------------|------|
+| Google AI | `googleai` | `plugins/googlegenai` | per-request API key |
+| OpenAI | `openai` | `plugins/compat_oai/openai` | per-request API key |
+| Anthropic | `anthropic` | `plugins/compat_oai/anthropic` | per-request API key |
+| Vertex AI | `vertexai` | `plugins/googlegenai` | GCP ADC (`GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION`); bearer not forwarded |
 
 ## Process lifecycle
 

@@ -114,6 +114,16 @@ implement `Unwrap`, the handler reaches the underlying connection via
 It records the `model` and token `usage` into the same `modelSlot`, so streaming
 requests are logged and metered like non-streaming ones.
 
+**Tool calling.** Genkit has no way to declare a tool from a bare schema, so
+`toolOptions` (`generator.go`) registers a *stub* tool per client-declared tool
+on the per-request Genkit instance (the client's JSON schema via
+`ai.WithInputSchema`) and sets `ai.WithReturnToolRequests(true)`. That flag makes
+Genkit return the model's tool calls instead of executing them, so the stub
+functions are never invoked — the proxy reads `resp.ToolRequests()` into
+`toolCalls`. Results come back as a `tool`-role message whose `toolResponse` part
+`messagesFrom` maps to `ai.NewToolResponsePart`. Registration is per-request, so
+there is no cross-request tool state.
+
 ## Request lifecycle
 
 The internal path of a `POST /v1/generate` call, split by outcome. The

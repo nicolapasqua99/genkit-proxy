@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -51,13 +52,15 @@ func (g GenkitGenerator) Generate(ctx context.Context, req GenerateRequest, apiK
 
 	genkitApp := genkit.Init(ctx, genkit.WithPlugins(plugin))
 
-	resp, err := genkit.Generate(ctx, genkitApp, generateOptions(req)...)
+	opts := append(generateOptions(req), toolOptions(genkitApp, req)...)
+	resp, err := genkit.Generate(ctx, genkitApp, opts...)
 	if err != nil {
 		return GenerateResponse{}, fmt.Errorf("generate %q: %w", req.ModelName, err)
 	}
 	out := GenerateResponse{
 		Model:        req.ModelName,
 		FinishReason: string(resp.FinishReason),
+		ToolCalls:    toolCallsFrom(resp.ToolRequests()),
 		Usage:        usageFrom(resp.Usage),
 	}
 	out.Output, out.Data = outputAndData(req, resp.Text())
@@ -79,8 +82,9 @@ func (g GenkitGenerator) GenerateStream(ctx context.Context, req GenerateRequest
 
 	genkitApp := genkit.Init(ctx, genkit.WithPlugins(plugin))
 
+	opts := append(generateOptions(req), toolOptions(genkitApp, req)...)
 	var final *ai.ModelResponse
-	for value, streamErr := range genkit.GenerateStream(ctx, genkitApp, generateOptions(req)...) {
+	for value, streamErr := range genkit.GenerateStream(ctx, genkitApp, opts...) {
 		if streamErr != nil {
 			return GenerateResponse{}, fmt.Errorf("generate %q: %w", req.ModelName, streamErr)
 		}
@@ -98,6 +102,7 @@ func (g GenkitGenerator) GenerateStream(ctx context.Context, req GenerateRequest
 	out := GenerateResponse{Model: req.ModelName}
 	if final != nil {
 		out.FinishReason = string(final.FinishReason)
+		out.ToolCalls = toolCallsFrom(final.ToolRequests())
 		out.Usage = usageFrom(final.Usage)
 	}
 	return out, nil
@@ -130,6 +135,56 @@ func generateOptions(req GenerateRequest) []ai.GenerateOption {
 	return opts
 }
 
+// toolOptions registers a stub tool per client-declared tool and returns the
+// Genkit options that forward the declarations and return the model's tool calls
+// instead of executing them. The stub functions are never invoked, because
+// WithReturnToolRequests short-circuits before any tool runs. Registration is
+// local to this per-request Genkit instance, so there is no cross-request state.
+func toolOptions(genkitApp *genkit.Genkit, req GenerateRequest) []ai.GenerateOption {
+	if len(req.Tools) == 0 {
+		return nil
+	}
+	refs := make([]ai.ToolRef, len(req.Tools))
+	for i, tool := range req.Tools {
+		schema := tool.InputSchema
+		if len(schema) == 0 {
+			schema = map[string]any{"type": "object"}
+		}
+		refs[i] = genkit.DefineTool(genkitApp, tool.Name, tool.Description,
+			func(_ *ai.ToolContext, _ any) (any, error) {
+				return nil, errors.New("tool execution is delegated to the client")
+			},
+			ai.WithInputSchema(schema))
+	}
+	opts := []ai.GenerateOption{
+		ai.WithTools(refs...),
+		ai.WithReturnToolRequests(true),
+	}
+	if req.ToolChoice != "" {
+		opts = append(opts, ai.WithToolChoice(ai.ToolChoice(req.ToolChoice)))
+	}
+	return opts
+}
+
+// toolCallsFrom maps Genkit tool requests to the proxy's ToolCall list,
+// returning nil when the model requested none.
+func toolCallsFrom(reqs []*ai.ToolRequest) []ToolCall {
+	if len(reqs) == 0 {
+		return nil
+	}
+	calls := make([]ToolCall, len(reqs))
+	for i, toolReq := range reqs {
+		call := ToolCall{Name: toolReq.Name, Ref: toolReq.Ref}
+		if toolReq.Input != nil {
+			if input, err := json.Marshal(toolReq.Input); err == nil {
+				call.Input = input
+			}
+		}
+		calls[i] = call
+	}
+	return calls
+}
+
 // outputAndData places the model's text into the response as structured Data
 // when JSON was requested and the text is valid JSON; otherwise as plain Output.
 // The fallback guarantees we never emit a malformed data field.
@@ -141,8 +196,8 @@ func outputAndData(req GenerateRequest, text string) (string, json.RawMessage) {
 }
 
 // messagesFrom maps the request's conversation history to Genkit messages,
-// returning nil when there is none. Validation guarantees each role is "user"
-// or "model", so ai.Role conversion is safe.
+// returning nil when there is none. Validation guarantees each role is "user",
+// "model", or "tool", so ai.Role conversion is safe.
 func messagesFrom(req GenerateRequest) []*ai.Message {
 	if len(req.Messages) == 0 {
 		return nil
@@ -152,11 +207,7 @@ func messagesFrom(req GenerateRequest) []*ai.Message {
 		if len(message.Parts) > 0 {
 			parts := make([]*ai.Part, len(message.Parts))
 			for j, part := range message.Parts {
-				if part.Media != nil {
-					parts[j] = ai.NewMediaPart(part.Media.ContentType, part.Media.URL)
-				} else {
-					parts[j] = ai.NewTextPart(part.Text)
-				}
+				parts[j] = partFrom(part)
 			}
 			msgs[i] = ai.NewMessage(ai.Role(message.Role), nil, parts...)
 			continue
@@ -164,6 +215,42 @@ func messagesFrom(req GenerateRequest) []*ai.Message {
 		msgs[i] = ai.NewTextMessage(ai.Role(message.Role), message.Content)
 	}
 	return msgs
+}
+
+// partFrom maps one request part to a Genkit part. Validation guarantees exactly
+// one field is set.
+func partFrom(part Part) *ai.Part {
+	switch {
+	case part.Media != nil:
+		return ai.NewMediaPart(part.Media.ContentType, part.Media.URL)
+	case part.ToolRequest != nil:
+		return ai.NewToolRequestPart(&ai.ToolRequest{
+			Name:  part.ToolRequest.Name,
+			Ref:   part.ToolRequest.Ref,
+			Input: rawToAny(part.ToolRequest.Input),
+		})
+	case part.ToolResponse != nil:
+		return ai.NewToolResponsePart(&ai.ToolResponse{
+			Name:   part.ToolResponse.Name,
+			Ref:    part.ToolResponse.Ref,
+			Output: rawToAny(part.ToolResponse.Output),
+		})
+	default:
+		return ai.NewTextPart(part.Text)
+	}
+}
+
+// rawToAny decodes raw JSON into a generic value for Genkit's any-typed tool
+// input/output fields, returning nil for empty or invalid JSON.
+func rawToAny(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil
+	}
+	return value
 }
 
 // configFor builds the generation config from the request's optional tuning

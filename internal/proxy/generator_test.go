@@ -79,6 +79,58 @@ func TestMessagesFrom(t *testing.T) {
 			t.Errorf("part[1] = %+v, want media image/png", media)
 		}
 	})
+
+	t.Run("maps tool request and response parts", func(t *testing.T) {
+		req := GenerateRequest{Messages: []Message{
+			{Role: "model", Parts: []Part{{ToolRequest: &ToolCall{Name: "get_weather", Ref: "a1", Input: json.RawMessage(`{"city":"SF"}`)}}}},
+			{Role: "tool", Parts: []Part{{ToolResponse: &ToolResult{Name: "get_weather", Ref: "a1", Output: json.RawMessage(`{"tempC":18}`)}}}},
+		}}
+		got := messagesFrom(req)
+		if len(got) != 2 {
+			t.Fatalf("len = %d, want 2", len(got))
+		}
+		reqPart := got[0].Content[0]
+		if got[0].Role != ai.RoleModel || !reqPart.IsToolRequest() {
+			t.Fatalf("msg[0] = {%s, %+v}, want a model tool request", got[0].Role, reqPart)
+		}
+		if reqPart.ToolRequest.Name != "get_weather" || reqPart.ToolRequest.Ref != "a1" {
+			t.Errorf("toolRequest = %+v, want get_weather/a1", reqPart.ToolRequest)
+		}
+		if input, ok := reqPart.ToolRequest.Input.(map[string]any); !ok || input["city"] != "SF" {
+			t.Errorf("toolRequest input = %v, want {city: SF}", reqPart.ToolRequest.Input)
+		}
+		respPart := got[1].Content[0]
+		if got[1].Role != ai.RoleTool || !respPart.IsToolResponse() {
+			t.Fatalf("msg[1] = {%s, %+v}, want a tool response", got[1].Role, respPart)
+		}
+		if respPart.ToolResponse.Name != "get_weather" || respPart.ToolResponse.Ref != "a1" {
+			t.Errorf("toolResponse = %+v, want get_weather/a1", respPart.ToolResponse)
+		}
+	})
+}
+
+func TestToolCallsFrom(t *testing.T) {
+	t.Run("nil when no requests", func(t *testing.T) {
+		if got := toolCallsFrom(nil); got != nil {
+			t.Errorf("toolCallsFrom(nil) = %v, want nil", got)
+		}
+	})
+
+	t.Run("maps name, ref, and input", func(t *testing.T) {
+		got := toolCallsFrom([]*ai.ToolRequest{
+			{Name: "get_weather", Ref: "a1", Input: map[string]any{"city": "SF"}},
+			{Name: "noargs"},
+		})
+		if len(got) != 2 {
+			t.Fatalf("len = %d, want 2", len(got))
+		}
+		if got[0].Name != "get_weather" || got[0].Ref != "a1" || string(got[0].Input) != `{"city":"SF"}` {
+			t.Errorf("call[0] = %+v, want get_weather/a1/{city:SF}", got[0])
+		}
+		if got[1].Name != "noargs" || got[1].Input != nil {
+			t.Errorf("call[1] = %+v, want noargs with nil input", got[1])
+		}
+	})
 }
 
 func TestConfigFor(t *testing.T) {

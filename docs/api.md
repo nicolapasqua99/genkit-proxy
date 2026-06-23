@@ -49,7 +49,9 @@ Body (`GenerateRequest`, max 1 MiB, unknown fields rejected):
 | `stopSequences` | string[] | no | Strings that halt generation when produced. |
 | `responseFormat` | string | no | `"json"` requests structured JSON output. Omit for plain text. |
 | `outputSchema` | object | no | A JSON Schema the JSON output must conform to. Valid only with `responseFormat: "json"`. |
-| `messages` | object[] | no | Conversation turns sent before `userMessage`. Each entry has a `role` (`"user"` or `"model"`) and **exactly one** of `content` (text) or `parts` (multimodal). |
+| `messages` | object[] | no | Conversation turns sent before `userMessage`. Each entry has a `role` (`"user"`, `"model"`, or `"tool"`) and **exactly one** of `content` (text) or `parts`. |
+| `tools` | object[] | no | Tools the model may call. Each entry is `{"name","description"?,"inputSchema"?}` (`inputSchema` is a JSON Schema for the arguments; an open object schema is used when omitted). Names must be unique. See [tool calling](#tool-calling). |
+| `toolChoice` | string | no | Constrains tool use: `"auto"`, `"required"`, or `"none"`. Provider default when omitted. |
 
 Each `parts` entry has **exactly one** of:
 
@@ -57,6 +59,8 @@ Each `parts` entry has **exactly one** of:
 |-------|------|-------------|
 | `text` | string | A plain-text part. |
 | `media` | object | `{"contentType","url"}` — `contentType` is a MIME type (e.g. `image/png`); `url` is an `https://` URL or a `data:` URL with embedded base64. |
+| `toolRequest` | object | `{"name","ref"?,"input"?}` — a tool call previously emitted by the model, replayed in a `"model"` turn so the model has context for the matching result. |
+| `toolResponse` | object | `{"name","ref"?,"output"?}` — the result of running a tool the model requested, sent in a `"tool"` turn. `ref` should match the originating `toolRequest`. |
 
 A request must include `userMessage`, `messages`, or both. Multimodal (vision/document)
 input goes in a `messages` part with `media`. Note the **1 MiB body cap** limits inline
@@ -81,6 +85,7 @@ input goes in a `messages` part with `media`. Note the **1 MiB body cap** limits
 | `output` | string | Generated text. Empty when the model returned no text (e.g. a safety block) or when JSON output was returned in `data`. |
 | `finishReason` | string | Why the model stopped. Omitted when the provider reports none. |
 | `data` | object | Structured JSON output, present only when `responseFormat: "json"` was requested and the model returned valid JSON. Mutually exclusive with text `output`. Omitted otherwise. |
+| `toolCalls` | object[] | Tools the model wants the client to run, each `{"name","ref"?,"input"}`. Present only when `tools` were provided and the model chose to call one; `output` is then empty. See [tool calling](#tool-calling). |
 | `usage` | object | Token counts `{input, output, total}`. Omitted when the provider reports none. |
 
 ```json
@@ -109,12 +114,63 @@ it falls back to `output` so `data` is never malformed:
 }
 ```
 
+### Tool calling
+
+Pass `tools` to let the model call functions the client implements. The proxy is
+stateless: it forwards the declarations to the provider and returns any tool
+**calls** to the client — it never executes tools itself. Completing a call is a
+client-driven round-trip:
+
+1. **Send tools.** The request carries `tools` (and optionally `toolChoice`).
+
+   ```json
+   {
+     "modelName": "googleai/gemini-2.5-flash",
+     "userMessage": "What is the weather in SF?",
+     "tools": [{
+       "name": "get_weather",
+       "description": "Look up the current weather for a city.",
+       "inputSchema": {"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}
+     }]
+   }
+   ```
+
+2. **Receive tool calls.** When the model decides to call a tool, the response
+   carries `toolCalls` and an empty `output` (`finishReason` is typically `stop`):
+
+   ```json
+   { "model": "googleai/gemini-2.5-flash", "output": "",
+     "toolCalls": [{"name":"get_weather","ref":"call_1","input":{"city":"SF"}}],
+     "finishReason": "stop" }
+   ```
+
+3. **Run the tool and send results back.** Replay the conversation in `messages`
+   — the model's tool-call turn as a `"model"` message with a `toolRequest` part,
+   then the result as a `"tool"` message with a `toolResponse` part (matching
+   `ref`) — and **resend `tools`**. The model then produces its final answer.
+
+   ```json
+   {
+     "modelName": "googleai/gemini-2.5-flash",
+     "tools": [{"name":"get_weather","description":"...","inputSchema":{"type":"object","properties":{"city":{"type":"string"}}}}],
+     "messages": [
+       {"role":"user","content":"What is the weather in SF?"},
+       {"role":"model","parts":[{"toolRequest":{"name":"get_weather","ref":"call_1","input":{"city":"SF"}}}]},
+       {"role":"tool","parts":[{"toolResponse":{"name":"get_weather","ref":"call_1","output":{"tempC":18,"sky":"clear"}}}]}
+     ]
+   }
+   ```
+
+Tools must be resent on every request because the proxy keeps no session state.
+On the streaming endpoint, tool calls are delivered in the terminating `done`
+event (see [`/v1/generate/stream`](#post-v1generatestream)).
+
 ### Status codes
 
 | Status | Cause |
 |--------|-------|
 | `200` | Success. |
-| `400` | Invalid request (bad JSON, unknown field, neither `userMessage` nor `messages`, an out-of-range tuning field — temperature / maxOutputTokens / topP / topK — an invalid `responseFormat` / `outputSchema`, or a malformed `messages` / `parts` / `media` entry) or unsupported provider. |
+| `400` | Invalid request (bad JSON, unknown field, neither `userMessage` nor `messages`, an out-of-range tuning field — temperature / maxOutputTokens / topP / topK — an invalid `responseFormat` / `outputSchema`, a malformed `messages` / `parts` / `media` entry, a missing/duplicate `tools` name, or an invalid `toolChoice`) or unsupported provider. |
 | `401` | Missing/malformed bearer token, or upstream rejected the credentials. |
 | `403` | Upstream provider denied access. |
 | `404` | Requested model not found. |
@@ -309,11 +365,12 @@ sequence of named events:
 | Event | When | Data payload |
 |-------|------|--------------|
 | `chunk` | per text delta | `{"delta":"<text>"}` |
-| `done` | once, at the end | `{"model","finishReason","usage"}` (same fields as the non-stream response, minus `output`) |
+| `done` | once, at the end | `{"model","finishReason","toolCalls"?,"usage"}` (same fields as the non-stream response, minus `output`) |
 | `error` | a failure **after** streaming began | `{"error":"<categorized message>"}` |
 
 The streamed text is delivered only through `chunk` events; the `done` event
-carries the finish reason and token usage. A failure **before** the first byte is
+carries the finish reason, token usage, and any `toolCalls` (a tool-call turn
+produces no text `chunk`s — the calls arrive in `done`). A failure **before** the first byte is
 returned as an ordinary JSON error with the appropriate status (same status codes
 and sanitization as `/v1/generate`) — not as an `error` event.
 

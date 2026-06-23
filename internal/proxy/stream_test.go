@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,18 @@ func TestHandlerServeStream(t *testing.T) {
 				"event: done\ndata: ",
 				`"finishReason":"stop"`,
 				`"usage":{"input":1,"output":2,"total":3}`,
+			},
+		},
+		{
+			name:            "tool calls surface in done event",
+			auth:            "Bearer secret-key",
+			body:            `{"modelName":"googleai/gemini-2.5-flash","userMessage":"weather?","tools":[{"name":"get_weather","inputSchema":{"type":"object"}}]}`,
+			genResp:         GenerateResponse{Model: "googleai/gemini-2.5-flash", FinishReason: "stop", ToolCalls: []ToolCall{{Name: "get_weather", Ref: "a1", Input: json.RawMessage(`{"city":"SF"}`)}}},
+			wantStatus:      http.StatusOK,
+			wantContentType: "text/event-stream",
+			wantContains: []string{
+				"event: done\ndata: ",
+				`"toolCalls":[{"name":"get_weather","ref":"a1","input":{"city":"SF"}}]`,
 			},
 		},
 		{

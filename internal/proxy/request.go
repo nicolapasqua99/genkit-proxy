@@ -13,6 +13,14 @@ const responseFormatJSON = "json"
 const (
 	roleUser  = "user"
 	roleModel = "model"
+	roleTool  = "tool"
+)
+
+// Tool-choice modes accepted in GenerateRequest.ToolChoice.
+const (
+	toolChoiceAuto     = "auto"
+	toolChoiceRequired = "required"
+	toolChoiceNone     = "none"
 )
 
 // Message is one turn in a conversation. Provide exactly one of Content (text
@@ -26,12 +34,54 @@ type Message struct {
 	Parts []Part `json:"parts,omitempty"`
 }
 
-// Part is one piece of a message's content: exactly one of Text or Media.
+// Part is one piece of a message's content: exactly one of Text, Media,
+// ToolRequest, or ToolResponse. ToolRequest echoes a model tool call back in a
+// "model" turn; ToolResponse carries a tool result in a "tool" turn.
 type Part struct {
 	// Text is a plain-text part.
 	Text string `json:"text,omitempty"`
 	// Media is a non-text part (image, document, ...).
 	Media *Media `json:"media,omitempty"`
+	// ToolRequest is a tool call previously emitted by the model, replayed so the
+	// model has context for the matching ToolResponse.
+	ToolRequest *ToolCall `json:"toolRequest,omitempty"`
+	// ToolResponse is the result of running a tool the model requested.
+	ToolResponse *ToolResult `json:"toolResponse,omitempty"`
+}
+
+// ToolDefinition declares a tool the model may call. The proxy forwards the
+// declaration to the provider and returns any resulting calls to the client; it
+// never executes tools itself.
+type ToolDefinition struct {
+	// Name is the tool's unique name.
+	Name string `json:"name"`
+	// Description tells the model what the tool does. Optional but recommended.
+	Description string `json:"description,omitempty"`
+	// InputSchema is the JSON Schema for the tool's arguments. When omitted, an
+	// open object schema is used.
+	InputSchema map[string]any `json:"inputSchema,omitempty"`
+}
+
+// ToolCall is a request from the model to run a tool. It is returned in
+// GenerateResponse.ToolCalls and replayed by the client in a ToolRequest part.
+type ToolCall struct {
+	// Name is the tool to call.
+	Name string `json:"name"`
+	// Ref correlates the call with its later ToolResult. Provider-assigned.
+	Ref string `json:"ref,omitempty"`
+	// Input is the JSON arguments the model chose for the call.
+	Input json.RawMessage `json:"input,omitempty"`
+}
+
+// ToolResult is the outcome of a tool the client ran, sent back to the model in
+// a "tool" turn.
+type ToolResult struct {
+	// Name is the tool that produced the result.
+	Name string `json:"name"`
+	// Ref matches the originating ToolCall.Ref.
+	Ref string `json:"ref,omitempty"`
+	// Output is the JSON result of the tool.
+	Output json.RawMessage `json:"output,omitempty"`
 }
 
 // Media is a non-text part: an image or document referenced by an https:// URL
@@ -74,8 +124,13 @@ type GenerateRequest struct {
 	// when ResponseFormat is "json".
 	OutputSchema map[string]any `json:"outputSchema,omitempty"`
 	// Messages optionally provides prior conversation turns. Each role must be
-	// "user" or "model"; the current turn is the separate UserMessage.
+	// "user", "model", or "tool"; the current turn is the separate UserMessage.
 	Messages []Message `json:"messages,omitempty"`
+	// Tools optionally declares tools the model may call. When set, the model's
+	// tool calls are returned in GenerateResponse.ToolCalls instead of executed.
+	Tools []ToolDefinition `json:"tools,omitempty"`
+	// ToolChoice optionally constrains tool use: "auto", "required", or "none".
+	ToolChoice string `json:"toolChoice,omitempty"`
 }
 
 // GenerateResponse is the proxy's reply to a successful generation.
@@ -92,6 +147,10 @@ type GenerateResponse struct {
 	// Data carries the structured JSON output when JSON mode was requested and the
 	// model returned valid JSON. Omitted for plain-text responses.
 	Data json.RawMessage `json:"data,omitempty"`
+	// ToolCalls lists the tools the model wants the client to run. Present only
+	// when tools were provided and the model chose to call one; Output is then
+	// empty. Run the tools and send the results back in a follow-up request.
+	ToolCalls []ToolCall `json:"toolCalls,omitempty"`
 	// Usage reports token consumption. Omitted when the provider reported none.
 	Usage *Usage `json:"usage,omitempty"`
 }
@@ -137,9 +196,24 @@ func (request GenerateRequest) Validate() error {
 	if len(request.OutputSchema) > 0 && request.ResponseFormat != responseFormatJSON {
 		return &ValidationError{Field: "outputSchema", Reason: `requires responseFormat "json"`}
 	}
+	switch request.ToolChoice {
+	case "", toolChoiceAuto, toolChoiceRequired, toolChoiceNone:
+	default:
+		return &ValidationError{Field: "toolChoice", Reason: `must be "auto", "required", or "none" when set`}
+	}
+	seenTools := make(map[string]bool, len(request.Tools))
+	for i, tool := range request.Tools {
+		if strings.TrimSpace(tool.Name) == "" {
+			return &ValidationError{Field: fmt.Sprintf("tools[%d].name", i), Reason: "must not be empty"}
+		}
+		if seenTools[tool.Name] {
+			return &ValidationError{Field: fmt.Sprintf("tools[%d].name", i), Reason: "must be unique"}
+		}
+		seenTools[tool.Name] = true
+	}
 	for i, message := range request.Messages {
-		if message.Role != roleUser && message.Role != roleModel {
-			return &ValidationError{Field: fmt.Sprintf("messages[%d].role", i), Reason: `must be "user" or "model"`}
+		if message.Role != roleUser && message.Role != roleModel && message.Role != roleTool {
+			return &ValidationError{Field: fmt.Sprintf("messages[%d].role", i), Reason: `must be "user", "model", or "tool"`}
 		}
 		hasContent := strings.TrimSpace(message.Content) != ""
 		hasParts := len(message.Parts) > 0
@@ -157,17 +231,37 @@ func (request GenerateRequest) Validate() error {
 
 // validate reports the first problem with a part within messages[i].parts[j].
 func (part Part) validate(i, j int) error {
-	hasText := strings.TrimSpace(part.Text) != ""
-	hasMedia := part.Media != nil
-	if hasText == hasMedia {
-		return &ValidationError{Field: fmt.Sprintf("messages[%d].parts[%d]", i, j), Reason: "must set exactly one of text or media"}
+	set := 0
+	if strings.TrimSpace(part.Text) != "" {
+		set++
 	}
-	if hasMedia {
+	if part.Media != nil {
+		set++
+	}
+	if part.ToolRequest != nil {
+		set++
+	}
+	if part.ToolResponse != nil {
+		set++
+	}
+	if set != 1 {
+		return &ValidationError{Field: fmt.Sprintf("messages[%d].parts[%d]", i, j), Reason: "must set exactly one of text, media, toolRequest, or toolResponse"}
+	}
+	switch {
+	case part.Media != nil:
 		if strings.TrimSpace(part.Media.ContentType) == "" {
 			return &ValidationError{Field: fmt.Sprintf("messages[%d].parts[%d].media.contentType", i, j), Reason: "must not be empty"}
 		}
 		if strings.TrimSpace(part.Media.URL) == "" {
 			return &ValidationError{Field: fmt.Sprintf("messages[%d].parts[%d].media.url", i, j), Reason: "must not be empty"}
+		}
+	case part.ToolRequest != nil:
+		if strings.TrimSpace(part.ToolRequest.Name) == "" {
+			return &ValidationError{Field: fmt.Sprintf("messages[%d].parts[%d].toolRequest.name", i, j), Reason: "must not be empty"}
+		}
+	case part.ToolResponse != nil:
+		if strings.TrimSpace(part.ToolResponse.Name) == "" {
+			return &ValidationError{Field: fmt.Sprintf("messages[%d].parts[%d].toolResponse.name", i, j), Reason: "must not be empty"}
 		}
 	}
 	return nil

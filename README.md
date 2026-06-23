@@ -13,8 +13,9 @@ request to keep tenant keys isolated. The service listens on `$PORT` (default
 - **One unified endpoint** for multiple LLM providers — callers speak a single request/response shape.
 - **Provider routing by model prefix** — `googleai/…`, `openai/…`, `anthropic/…` select the backend.
 - **Per-request credentials** — the bearer token is passed straight through to the upstream provider; nothing is configured server-side.
+- **Generation controls & structured output** — optional `temperature`, `maxOutputTokens`, `topP`, `topK`, `stopSequences`, plus `responseFormat: "json"` with an optional `outputSchema` for machine-parseable JSON.
 - **Safe error handling** — upstream/provider failures are classified and reduced to generic messages so internal details never leak; caller mistakes are reported verbatim.
-- **Observability** — structured `log/slog` logging with a per-request ID (`X-Request-ID`, UUID v4 fallback).
+- **Observability** — structured `log/slog` logging with a per-request ID (`X-Request-ID`, UUID v4 fallback) and Prometheus metrics (request count, latency, and token counters) at `GET /metrics`.
 - **Production lifecycle** — panic recovery, configurable HTTP timeouts, and graceful shutdown on `SIGINT`/`SIGTERM`.
 
 ### Supported providers
@@ -90,6 +91,11 @@ provider's API key.
 | `userMessage` | yes | The user prompt. |
 | `systemPrompt` | no | Optional system instruction. |
 | `temperature` | no | Sampling randomness, `0`–`2`. Provider default when omitted. |
+| `maxOutputTokens` / `topP` / `topK` | no | Generation controls (`≥ 1` / `0`–`1` / `≥ 1`). Provider defaults when omitted. |
+| `stopSequences` | no | Strings that halt generation when produced. |
+| `responseFormat` | no | `"json"` requests structured JSON output (optionally constrained by `outputSchema`, a JSON Schema). |
+
+See [`docs/api.md`](docs/api.md) for the full field reference and bounds.
 
 **Response body**
 
@@ -97,13 +103,16 @@ provider's API key.
 {
   "model": "googleai/gemini-2.5-flash",
   "output": "Hello!",
-  "finishReason": "stop"
+  "finishReason": "stop",
+  "usage": { "input": 12, "output": 3, "total": 15 }
 }
 ```
 
 `output` may be empty when the model returned no text (for example a safety
 block); inspect `finishReason` in that case. Common reasons: `stop`, `length`,
-`blocked`, `interrupted`, `other`, `unknown`.
+`blocked`, `interrupted`, `other`, `unknown`. `usage` is omitted when the
+provider reports no token counts. When `responseFormat: "json"` is requested,
+valid JSON is returned inline in a `data` object instead of `output`.
 
 **Example**
 
@@ -124,7 +133,7 @@ Errors are returned as JSON:
 
 | Status | Cause |
 |--------|-------|
-| `400` | Invalid request (bad JSON, missing field, bad temperature) or unsupported provider. |
+| `400` | Invalid request (bad JSON, missing field, an out-of-range tuning field, or invalid `responseFormat`/`outputSchema`) or unsupported provider. |
 | `401` | Missing/malformed bearer token, or upstream rejected the credentials. |
 | `403` | Upstream provider denied access. |
 | `404` | Requested model not found. |

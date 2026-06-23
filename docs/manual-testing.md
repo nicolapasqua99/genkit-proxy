@@ -75,12 +75,26 @@ mapping:
 curl -s -X POST localhost:8080/v1/generate \
   -H "Authorization: Bearer $OPENAI_API_KEY" \
   -d '{"modelName":"openai/gpt-4o","userMessage":"say hi"}'
-# expect: {"model":"openai/gpt-4o","output":"...","finishReason":"stop"}
+# expect: {"model":"openai/gpt-4o","output":"...","finishReason":"stop",
+#          "usage":{"input":...,"output":...,"total":...}}
 ```
 
 `finishReason` is omitted only when the provider reports none. On a safety
 block it reads `"blocked"` and `output` is empty — that's how a caller
 distinguishes "the model declined" from "the model returned an empty string".
+`usage` is omitted when the provider reports no token counts.
+
+### Structured JSON output — valid key
+
+Request JSON by setting `responseFormat`; the parsed object comes back inline in
+`data` (not as a string in `output`). Add an `outputSchema` to constrain shape.
+
+```bash
+curl -s -X POST localhost:8080/v1/generate \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{"modelName":"openai/gpt-4o","userMessage":"Where is the Eiffel Tower?","responseFormat":"json"}'
+# expect: {"model":"openai/gpt-4o","data":{...},"finishReason":"stop","usage":{...}}
+```
 
 ## Behaviors that are test-only
 

@@ -64,12 +64,17 @@ flowchart LR
     ep --> scraper["Prometheus scraper"]
 ```
 
-Two instruments, both labelled by `method`, `status`, and `provider`:
+Three instruments. The two request metrics are labelled by `method`, `status`,
+and `provider`; the token counter is labelled by `provider` and `kind`:
 
-| Metric | Type | Unit | Description |
-|--------|------|------|-------------|
-| `http_requests` | Int64 counter | requests | Total HTTP requests handled. |
-| `http_request_duration` | Float64 histogram | seconds | Request latency. |
+| Metric | Type | Unit | Labels | Description |
+|--------|------|------|--------|-------------|
+| `http_requests` | Int64 counter | requests | `method`, `status`, `provider` | Total HTTP requests handled. |
+| `http_request_duration` | Float64 histogram | seconds | `method`, `status`, `provider` | Request latency. |
+| `llm_tokens` | Int64 counter | tokens | `provider`, `kind` | Tokens consumed by generations. |
+
+In the Prometheus exposition the counters appear with the `_total` suffix
+(`http_requests_total`, `llm_tokens_total`).
 
 Histogram buckets (seconds), spanning fast probes through slow generations:
 `0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60` (`metrics.go:24`).
@@ -77,6 +82,12 @@ Histogram buckets (seconds), spanning fast probes through slow generations:
 The `provider` label is the model-name prefix (`googleai`, `openai`,
 `anthropic`), or empty for non-generation routes such as health checks
 (`providerLabel`, `metrics.go:125`).
+
+`llm_tokens_total` is recorded only for generations that report usage, with one
+series per `kind` — `input` and `output` (no `total`; it is derivable). It is
+not emitted for non-generation routes. The counts come from the same per-request
+usage surfaced in the response `usage` field, threaded to the metrics middleware
+through the shared `modelSlot`.
 
 ### Ordering dependency
 

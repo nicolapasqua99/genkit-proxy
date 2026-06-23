@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -55,17 +56,34 @@ func (g GenkitGenerator) Generate(ctx context.Context, req GenerateRequest, apiK
 	if cfg := configFor(req); cfg != nil {
 		opts = append(opts, ai.WithConfig(cfg))
 	}
+	if req.ResponseFormat == responseFormatJSON {
+		opts = append(opts, ai.WithOutputFormat(ai.OutputFormatJSON))
+		if len(req.OutputSchema) > 0 {
+			opts = append(opts, ai.WithOutputSchema(req.OutputSchema))
+		}
+	}
 
 	resp, err := genkit.Generate(ctx, genkitApp, opts...)
 	if err != nil {
 		return GenerateResponse{}, fmt.Errorf("generate %q: %w", req.ModelName, err)
 	}
-	return GenerateResponse{
+	out := GenerateResponse{
 		Model:        req.ModelName,
-		Output:       resp.Text(),
 		FinishReason: string(resp.FinishReason),
 		Usage:        usageFrom(resp.Usage),
-	}, nil
+	}
+	out.Output, out.Data = outputAndData(req, resp.Text())
+	return out, nil
+}
+
+// outputAndData places the model's text into the response as structured Data
+// when JSON was requested and the text is valid JSON; otherwise as plain Output.
+// The fallback guarantees we never emit a malformed data field.
+func outputAndData(req GenerateRequest, text string) (string, json.RawMessage) {
+	if req.ResponseFormat == responseFormatJSON && json.Valid([]byte(text)) {
+		return "", json.RawMessage(text)
+	}
+	return text, nil
 }
 
 // configFor builds the generation config from the request's optional tuning

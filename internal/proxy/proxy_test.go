@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -212,7 +213,7 @@ func TestHandlerServeHTTP(t *testing.T) {
 			if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
 				t.Fatalf("decode response: %v", err)
 			}
-			if got != testCase.genResp {
+			if !reflect.DeepEqual(got, testCase.genResp) {
 				t.Errorf("response = %+v, want %+v", got, testCase.genResp)
 			}
 			if fake.gotKey != "secret-key" {

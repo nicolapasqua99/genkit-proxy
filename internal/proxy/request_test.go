@@ -31,6 +31,10 @@ func TestGenerateRequestValidate(t *testing.T) {
 		{"top_p negative", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", TopP: temp(-0.1)}, true},
 		{"top_p bounds", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", TopP: temp(1)}, false},
 		{"top_k zero", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", TopK: intp(0)}, true},
+		{"json response format", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", ResponseFormat: "json"}, false},
+		{"json with output schema", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", ResponseFormat: "json", OutputSchema: map[string]any{"type": "object"}}, false},
+		{"unsupported response format", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", ResponseFormat: "xml"}, true},
+		{"output schema without json", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", OutputSchema: map[string]any{"type": "object"}}, true},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

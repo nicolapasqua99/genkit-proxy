@@ -222,6 +222,28 @@ func TestHandlerServeHTTP(t *testing.T) {
 	}
 }
 
+func TestHandlerWritesUsageToSlot(t *testing.T) {
+	want := &Usage{Input: 12, Output: 34, Total: 46}
+	fake := &fakeGenerator{resp: GenerateResponse{
+		Model:  "googleai/gemini-2.5-flash",
+		Output: "hello",
+		Usage:  want,
+	}}
+	handler := NewHandler(fake)
+
+	slot := &modelSlot{}
+	ctx := context.WithValue(context.Background(), modelKey, slot)
+	req := httptest.NewRequest(http.MethodPost, "/v1/generate",
+		strings.NewReader(`{"modelName":"googleai/gemini-2.5-flash","userMessage":"hi"}`)).WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer k")
+
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	if slot.usage == nil || *slot.usage != *want {
+		t.Errorf("slot.usage = %+v, want %+v", slot.usage, want)
+	}
+}
+
 func TestStatusFor(t *testing.T) {
 	openaiApiErrUnauth := &openai.Error{
 		StatusCode: http.StatusUnauthorized,

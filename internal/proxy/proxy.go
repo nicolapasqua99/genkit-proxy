@@ -67,6 +67,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, httpReq *http.Requ
 		return
 	}
 
+	if slot := modelSlotFromContext(httpReq.Context()); slot != nil {
+		slot.usage = resp.Usage
+	}
+
 	writeJSON(writer, http.StatusOK, resp)
 }
 

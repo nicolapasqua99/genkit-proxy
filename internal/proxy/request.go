@@ -27,6 +27,19 @@ type GenerateResponse struct {
 	// "stop", "length", "blocked", "interrupted", "other", "unknown".
 	// Omitted when the provider did not report a reason.
 	FinishReason string `json:"finishReason,omitempty"`
+	// Usage reports token consumption. Omitted when the provider reported none.
+	Usage *Usage `json:"usage,omitempty"`
+}
+
+// Usage reports the token counts for a generation. Fields are omitted when the
+// provider did not report them.
+type Usage struct {
+	// Input is the number of tokens in the prompt.
+	Input int `json:"input,omitempty"`
+	// Output is the number of tokens generated in the response.
+	Output int `json:"output,omitempty"`
+	// Total is the sum of input and output tokens.
+	Total int `json:"total,omitempty"`
 }
 
 // Validate reports the first problem found with the request, or nil when the

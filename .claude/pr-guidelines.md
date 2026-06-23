@@ -24,6 +24,12 @@ Keep it under 72 characters.
 ## Rules
 
 - One logical change per PR; split unrelated work into separate PRs
+- **Update documentation in the same PR as the change.** When a change alters
+  observable behaviour — endpoints, request/response fields, metrics,
+  configuration/env vars, or the error mapping — update the affected `docs/`
+  pages and `README.md` in the same PR so documentation never drifts behind
+  `main`. State in the `## Testing` section that the docs were checked (or note
+  explicitly that no docs change was needed).
 - Rebase onto `main` before requesting review (no unnecessary merge commits)
 - All lint checks must pass: `golangci-lint run ./...` and `go vet ./...`
 - `go build ./...` must succeed before marking the PR ready for review

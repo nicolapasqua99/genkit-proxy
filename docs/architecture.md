@@ -129,10 +129,10 @@ sequenceDiagram
     G->>R: pluginFor(modelName, apiKey)
     G->>K: genkit.Init(plugin) + Generate(opts)
     K->>P: upstream generation
-    P-->>K: text + finishReason
+    P-->>K: text/JSON + finishReason + usage
     K-->>G: response
     G-->>H: GenerateResponse
-    H-->>C: 200 {model, output, finishReason}
+    H-->>C: 200 {model, output|data, finishReason, usage}
     Note over MW: Logger writes access log,<br/>Metrics records count + latency
 ```
 

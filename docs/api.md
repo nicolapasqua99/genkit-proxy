@@ -38,6 +38,12 @@ Body (`GenerateRequest`, max 1 MiB, unknown fields rejected):
 | `userMessage` | string | yes | The user prompt. |
 | `systemPrompt` | string | no | Optional system instruction. |
 | `temperature` | number | no | Sampling randomness, `0`–`2`. Provider default when omitted. |
+| `maxOutputTokens` | integer | no | Caps generated tokens, `≥ 1`. Provider default when omitted. |
+| `topP` | number | no | Nucleus-sampling mass, `0`–`1`. Provider default when omitted. |
+| `topK` | integer | no | Limits sampling to the K likeliest tokens, `≥ 1`. Provider default when omitted. |
+| `stopSequences` | string[] | no | Strings that halt generation when produced. |
+| `responseFormat` | string | no | `"json"` requests structured JSON output. Omit for plain text. |
+| `outputSchema` | object | no | A JSON Schema the JSON output must conform to. Valid only with `responseFormat: "json"`. |
 
 ```json
 {
@@ -55,14 +61,17 @@ Body (`GenerateRequest`, max 1 MiB, unknown fields rejected):
 | Field | Type | Description |
 |-------|------|-------------|
 | `model` | string | Echoes the model that served the request. |
-| `output` | string | Generated text. Empty when the model returned no text (e.g. a safety block). |
+| `output` | string | Generated text. Empty when the model returned no text (e.g. a safety block) or when JSON output was returned in `data`. |
 | `finishReason` | string | Why the model stopped. Omitted when the provider reports none. |
+| `data` | object | Structured JSON output, present only when `responseFormat: "json"` was requested and the model returned valid JSON. Mutually exclusive with text `output`. Omitted otherwise. |
+| `usage` | object | Token counts `{input, output, total}`. Omitted when the provider reports none. |
 
 ```json
 {
   "model": "googleai/gemini-2.5-flash",
   "output": "Hello!",
-  "finishReason": "stop"
+  "finishReason": "stop",
+  "usage": { "input": 12, "output": 3, "total": 15 }
 }
 ```
 
@@ -70,12 +79,25 @@ Body (`GenerateRequest`, max 1 MiB, unknown fields rejected):
 `other`, `unknown`. When `output` is empty, inspect `finishReason` to tell "the
 model declined" (`blocked`) from "the model returned an empty string".
 
+When the request sets `responseFormat: "json"`, valid JSON is returned inline in
+`data` (and `output` is empty); if the model returns text that is not valid JSON,
+it falls back to `output` so `data` is never malformed:
+
+```json
+{
+  "model": "googleai/gemini-2.5-flash",
+  "data": { "city": "Paris", "country": "France" },
+  "finishReason": "stop",
+  "usage": { "input": 18, "output": 9, "total": 27 }
+}
+```
+
 ### Status codes
 
 | Status | Cause |
 |--------|-------|
 | `200` | Success. |
-| `400` | Invalid request (bad JSON, unknown field, missing field, temperature out of range) or unsupported provider. |
+| `400` | Invalid request (bad JSON, unknown field, missing field, an out-of-range tuning field — temperature / maxOutputTokens / topP / topK — or an invalid `responseFormat` / `outputSchema`) or unsupported provider. |
 | `401` | Missing/malformed bearer token, or upstream rejected the credentials. |
 | `403` | Upstream provider denied access. |
 | `404` | Requested model not found. |
@@ -105,8 +127,8 @@ sequenceDiagram
     C->>X: POST /v1/generate (Bearer key, JSON body)
     X->>X: method, auth, body, modelName all valid
     X->>P: forward generation with caller key
-    P-->>X: text + finishReason
-    X-->>C: 200 {model, output, finishReason}
+    P-->>X: text/JSON + finishReason + usage
+    X-->>C: 200 {model, output|data, finishReason, usage}
 ```
 
 #### Request rejected before the provider is called
@@ -127,7 +149,7 @@ sequenceDiagram
         X-->>C: 405 {error: "method not allowed"}
     else missing / malformed bearer token
         X-->>C: 401 {error: "missing or malformed Authorization bearer token"}
-    else bad JSON, unknown field, missing field, temperature out of range, or unsupported provider
+    else bad JSON, unknown field, missing field, out-of-range tuning field, invalid responseFormat/outputSchema, or unsupported provider
         X-->>C: 400 {error: "<validation detail>"}
     end
     Note over X,P: provider is never called
@@ -205,6 +227,21 @@ curl -sS http://localhost:8080/v1/generate \
 curl -sS http://localhost:8080/v1/generate \
   -H "Authorization: Bearer $ANTHROPIC_API_KEY" \
   -d '{"modelName":"anthropic/claude-3-5-sonnet","userMessage":"Say hello."}'
+
+# Structured JSON output, constrained to a schema (returned inline in "data")
+curl -sS http://localhost:8080/v1/generate \
+  -H "Authorization: Bearer $GOOGLEAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "modelName": "googleai/gemini-2.5-flash",
+        "userMessage": "Where is the Eiffel Tower?",
+        "responseFormat": "json",
+        "outputSchema": {
+          "type": "object",
+          "properties": {"city": {"type": "string"}, "country": {"type": "string"}},
+          "required": ["city", "country"]
+        }
+      }'
 ```
 
 ---

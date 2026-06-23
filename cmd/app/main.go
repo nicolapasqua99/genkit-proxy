@@ -2,7 +2,9 @@
 //
 // It exposes POST /v1/generate, which accepts a generic generation payload and
 // forwards it to the LLM provider named by the request's model prefix, using
-// the API key supplied in the Authorization bearer header. GET /healthz and
+// the API key supplied in the Authorization bearer header. POST
+// /v1/generate/stream streams the same generation as Server-Sent Events. GET
+// /healthz and
 // GET /readyz are liveness and readiness probes. GET /version returns the build
 // SHA and timestamp. GET /metrics serves Prometheus metrics. The server listens
 // on $PORT (default 8080) for Cloud Run.
@@ -45,6 +47,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/generate", handler)
+	mux.HandleFunc("POST /v1/generate/stream", handler.ServeStream)
 	mux.Handle("GET /metrics", metrics.Handler())
 	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(http.StatusOK)

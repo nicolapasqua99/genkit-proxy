@@ -46,6 +46,7 @@ graph TD
 
     subgraph pkg["internal/proxy"]
         handler["proxy.go<br/>Handler, bearerToken, statusFor"]
+        stream["stream.go<br/>SSE streaming handler"]
         mw["middleware.go<br/>Recover, RequestID, Logger"]
         metrics["metrics.go<br/>Metrics (OTel + Prometheus)"]
         gen["generator.go<br/>Generator, GenkitGenerator"]
@@ -56,6 +57,7 @@ graph TD
 
     main --> config
     main --> handler
+    main --> stream
     main --> mw
     main --> metrics
     main --> gen
@@ -63,6 +65,7 @@ graph TD
     handler --> req
     handler --> errs
     handler --> mw
+    stream --> gen
     handler -->|"Generator interface"| gen
     gen --> router
     req --> router
@@ -102,6 +105,14 @@ and `Metrics.Middleware` read it afterward (for the `model` log field and the
 `provider` metric label). `Metrics.Middleware` therefore runs *inside* `Logger`
 and reuses its slot — falling back to its own slot only if `Logger` is absent
 (`metrics.go:95-103`).
+
+**Streaming.** `POST /v1/generate/stream` (`stream.go`) writes Server-Sent
+Events incrementally. Because the two `statusWriter` wrappers in the chain
+implement `Unwrap`, the handler reaches the underlying connection via
+`http.ResponseController` to `Flush` each event and to clear the write deadline
+(streams are bounded by the per-request generation timeout, not `WRITE_TIMEOUT`).
+It records the `model` and token `usage` into the same `modelSlot`, so streaming
+requests are logged and metered like non-streaming ones.
 
 ## Request lifecycle
 

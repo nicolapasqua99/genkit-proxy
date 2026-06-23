@@ -85,18 +85,18 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   `internal/proxy/generator.go`. Valid JSON is returned inline in the response `data` field
   (`json.RawMessage`); non-JSON falls back to `output`. *Why:* the proxy previously returned plain
   text only, which blocked any app that needs machine-parseable output.
-- [ ] **Streaming (SSE)** — new `POST /v1/generate/stream` backed by
+- [x] **Streaming (SSE)** — new `POST /v1/generate/stream` backed by
   `genkit.GenerateStream`, emitting `text/event-stream` with `http.Flusher`. Biggest
   chat-UX win.
-- [ ] **Multi-turn chat** — optional `Messages []Message` (role/content) on
+- [x] **Multi-turn chat** — optional `Messages []Message` (role/content) on
   `GenerateRequest`, mapped via `ai.WithMessages`, alongside the existing `userMessage`
   field.
-- [ ] **Multimodal input** — `UserMessage string` precludes images/files. Design the
+- [x] **Multimodal input** — `UserMessage string` precludes images/files. Design the
   `Messages` field above to carry typed parts (text / media), not just strings, so vision and
   document inputs are possible.
-- [ ] **Tool / function calling** — known limitation; agentic callers need multi-step
+- [x] **Tool / function calling** — known limitation; agentic callers need multi-step
   tool round-trips. Larger design effort; named here so it isn't lost.
-- [ ] **Vertex AI provider** — only `googleai` is wired in `internal/proxy/router.go`; add the
+- [x] **Vertex AI provider** — only `googleai` is wired in `internal/proxy/router.go`; add the
   `vertexai` plugin for the enterprise GCP auth path, and document the supported-provider
   matrix.
 

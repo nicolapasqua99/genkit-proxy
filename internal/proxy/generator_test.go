@@ -9,6 +9,39 @@ import (
 	"github.com/firebase/genkit/go/ai"
 )
 
+func TestConfigFor(t *testing.T) {
+	cases := []struct {
+		name string
+		req  GenerateRequest
+		want *ai.GenerationCommonConfig
+	}{
+		{"no tuning fields", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi"}, nil},
+		{
+			"temperature only",
+			GenerateRequest{Temperature: temp(0.5)},
+			&ai.GenerationCommonConfig{Temperature: 0.5},
+		},
+		{
+			"stop sequences only",
+			GenerateRequest{StopSequences: []string{"\n\n", "END"}},
+			&ai.GenerationCommonConfig{StopSequences: []string{"\n\n", "END"}},
+		},
+		{
+			"all fields",
+			GenerateRequest{Temperature: temp(0.7), MaxOutputTokens: intp(256), TopP: temp(0.9), TopK: intp(40), StopSequences: []string{"STOP"}},
+			&ai.GenerationCommonConfig{Temperature: 0.7, MaxOutputTokens: 256, TopP: 0.9, TopK: 40, StopSequences: []string{"STOP"}},
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := configFor(testCase.req)
+			if !reflect.DeepEqual(got, testCase.want) {
+				t.Errorf("configFor(%+v) = %+v, want %+v", testCase.req, got, testCase.want)
+			}
+		})
+	}
+}
+
 func TestUsageFrom(t *testing.T) {
 	cases := []struct {
 		name string

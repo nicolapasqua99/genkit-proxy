@@ -4,6 +4,8 @@ import "testing"
 
 func temp(value float64) *float64 { return &value }
 
+func intp(value int) *int { return &value }
+
 func TestGenerateRequestValidate(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -22,6 +24,13 @@ func TestGenerateRequestValidate(t *testing.T) {
 		{"temperature negative", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", Temperature: temp(-0.1)}, true},
 		{"empty model segment", GenerateRequest{ModelName: "googleai/", UserMessage: "hi"}, true},
 		{"whitespace model segment", GenerateRequest{ModelName: "googleai/   ", UserMessage: "hi"}, true},
+		{"valid generation config", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", MaxOutputTokens: intp(256), TopP: temp(0.9), TopK: intp(40), StopSequences: []string{"\n\n"}}, false},
+		{"max output tokens zero", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", MaxOutputTokens: intp(0)}, true},
+		{"max output tokens negative", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", MaxOutputTokens: intp(-1)}, true},
+		{"top_p too high", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", TopP: temp(1.5)}, true},
+		{"top_p negative", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", TopP: temp(-0.1)}, true},
+		{"top_p bounds", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", TopP: temp(1)}, false},
+		{"top_k zero", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", TopK: intp(0)}, true},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

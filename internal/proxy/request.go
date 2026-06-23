@@ -14,6 +14,17 @@ type GenerateRequest struct {
 	// Temperature optionally controls sampling randomness. When nil the
 	// provider default is used.
 	Temperature *float64 `json:"temperature,omitempty"`
+	// MaxOutputTokens optionally caps the number of tokens generated. When nil
+	// the provider default is used.
+	MaxOutputTokens *int `json:"maxOutputTokens,omitempty"`
+	// TopP optionally sets nucleus-sampling probability mass. When nil the
+	// provider default is used.
+	TopP *float64 `json:"topP,omitempty"`
+	// TopK optionally limits sampling to the K most likely tokens. When nil the
+	// provider default is used.
+	TopK *int `json:"topK,omitempty"`
+	// StopSequences optionally lists strings that halt generation when produced.
+	StopSequences []string `json:"stopSequences,omitempty"`
 }
 
 // GenerateResponse is the proxy's reply to a successful generation.
@@ -56,6 +67,15 @@ func (request GenerateRequest) Validate() error {
 	}
 	if request.Temperature != nil && (*request.Temperature < 0 || *request.Temperature > 2) {
 		return &ValidationError{Field: "temperature", Reason: "must be between 0 and 2"}
+	}
+	if request.MaxOutputTokens != nil && *request.MaxOutputTokens < 1 {
+		return &ValidationError{Field: "maxOutputTokens", Reason: "must be at least 1"}
+	}
+	if request.TopP != nil && (*request.TopP < 0 || *request.TopP > 1) {
+		return &ValidationError{Field: "topP", Reason: "must be between 0 and 1"}
+	}
+	if request.TopK != nil && *request.TopK < 1 {
+		return &ValidationError{Field: "topK", Reason: "must be at least 1"}
 	}
 	return nil
 }

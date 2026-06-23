@@ -74,10 +74,12 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   (`internal/proxy/request.go`) with `Usage{Input, Output, Total}` and `FinishReason`,
   read from the `*ai.ModelResponse` in `internal/proxy/generator.go`. Near-free and needed
   for metering/billing.
-- [ ] **Generation config passthrough** — add `MaxOutputTokens` / `TopP` / `TopK` /
-  `StopSequences` to `GenerateRequest`, mapped onto `ai.GenerationCommonConfig` (already
-  carries these fields). Note **provider-specific bounds**: the generic temperature `0–2`
-  already passes e.g. `1.5` to Anthropic (max `1.0`), which the provider rejects as a `502`.
+- [x] **Generation config passthrough** — add `MaxOutputTokens` / `TopP` / `TopK` /
+  `StopSequences` to `GenerateRequest`, mapped onto `ai.GenerationCommonConfig` via `configFor`
+  in `internal/proxy/generator.go`. Validated with generic bounds (`maxOutputTokens >= 1`,
+  `topP 0–1`, `topK >= 1`). **Provider-specific bounds remain unhandled** (as with temperature):
+  the generic temperature `0–2` still passes e.g. `1.5` to Anthropic (max `1.0`); a value a
+  provider rejects surfaces as the upstream error's classified status, not a pre-validation `400`.
 - [ ] **Structured / JSON output** — pass an output schema / response format through
   `ai.WithOutputType` so callers can request JSON mode. *Why:* the proxy returns plain text
   only, which blocks any app that needs machine-parseable output.

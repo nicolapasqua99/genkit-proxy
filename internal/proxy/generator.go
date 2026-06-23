@@ -52,8 +52,8 @@ func (g GenkitGenerator) Generate(ctx context.Context, req GenerateRequest, apiK
 	if req.SystemPrompt != "" {
 		opts = append(opts, ai.WithSystem(req.SystemPrompt))
 	}
-	if req.Temperature != nil {
-		opts = append(opts, ai.WithConfig(&ai.GenerationCommonConfig{Temperature: *req.Temperature}))
+	if cfg := configFor(req); cfg != nil {
+		opts = append(opts, ai.WithConfig(cfg))
 	}
 
 	resp, err := genkit.Generate(ctx, genkitApp, opts...)
@@ -66,6 +66,37 @@ func (g GenkitGenerator) Generate(ctx context.Context, req GenerateRequest, apiK
 		FinishReason: string(resp.FinishReason),
 		Usage:        usageFrom(resp.Usage),
 	}, nil
+}
+
+// configFor builds the generation config from the request's optional tuning
+// fields, returning nil when none are set so the provider defaults apply.
+func configFor(req GenerateRequest) *ai.GenerationCommonConfig {
+	cfg := &ai.GenerationCommonConfig{}
+	set := false
+	if req.Temperature != nil {
+		cfg.Temperature = *req.Temperature
+		set = true
+	}
+	if req.MaxOutputTokens != nil {
+		cfg.MaxOutputTokens = *req.MaxOutputTokens
+		set = true
+	}
+	if req.TopP != nil {
+		cfg.TopP = *req.TopP
+		set = true
+	}
+	if req.TopK != nil {
+		cfg.TopK = *req.TopK
+		set = true
+	}
+	if len(req.StopSequences) > 0 {
+		cfg.StopSequences = req.StopSequences
+		set = true
+	}
+	if !set {
+		return nil
+	}
+	return cfg
 }
 
 // usageFrom maps Genkit's generation usage to the proxy's Usage, returning nil

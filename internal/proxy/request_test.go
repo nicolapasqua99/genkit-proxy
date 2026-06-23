@@ -1,6 +1,9 @@
 package proxy
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func temp(value float64) *float64 { return &value }
 
@@ -48,6 +51,18 @@ func TestGenerateRequestValidate(t *testing.T) {
 		{"part neither text nor media", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "user", Parts: []Part{{}}}}}, true},
 		{"media missing contentType", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "user", Parts: []Part{{Media: &Media{URL: "u"}}}}}}, true},
 		{"media missing url", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "user", Parts: []Part{{Media: &Media{ContentType: "image/png"}}}}}}, true},
+		{"valid with tools", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "weather?", Tools: []ToolDefinition{{Name: "get_weather", Description: "gets weather", InputSchema: map[string]any{"type": "object"}}}}, false},
+		{"valid tool without schema", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", Tools: []ToolDefinition{{Name: "ping"}}}, false},
+		{"tool missing name", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", Tools: []ToolDefinition{{Description: "no name"}}}, true},
+		{"duplicate tool names", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", Tools: []ToolDefinition{{Name: "dup"}, {Name: "dup"}}}, true},
+		{"valid toolChoice auto", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", ToolChoice: "auto"}, false},
+		{"valid toolChoice none", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", ToolChoice: "none"}, false},
+		{"invalid toolChoice", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", UserMessage: "hi", ToolChoice: "always"}, true},
+		{"valid tool role with toolResponse", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "tool", Parts: []Part{{ToolResponse: &ToolResult{Name: "get_weather", Ref: "a1", Output: json.RawMessage(`{"tempC":18}`)}}}}}}, false},
+		{"valid model role with toolRequest", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "model", Parts: []Part{{ToolRequest: &ToolCall{Name: "get_weather", Ref: "a1", Input: json.RawMessage(`{"city":"SF"}`)}}}}}}, false},
+		{"toolRequest missing name", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "model", Parts: []Part{{ToolRequest: &ToolCall{Ref: "a1"}}}}}}, true},
+		{"toolResponse missing name", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "tool", Parts: []Part{{ToolResponse: &ToolResult{Ref: "a1"}}}}}}, true},
+		{"part text and toolRequest", GenerateRequest{ModelName: "googleai/gemini-2.5-flash", Messages: []Message{{Role: "model", Parts: []Part{{Text: "hi", ToolRequest: &ToolCall{Name: "x"}}}}}}, true},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

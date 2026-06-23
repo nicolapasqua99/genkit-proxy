@@ -16,6 +16,7 @@ The service listens on `$PORT` (default `8080`) and is ready to run on Cloud Run
 - **Provider routing by model prefix** — `googleai/…`, `openai/…`, `anthropic/…`, `vertexai/…` select the backend.
 - **Per-request credentials** — the bearer token is passed straight through to the upstream provider; nothing is configured server-side. (Exception: `vertexai` uses the proxy's own GCP credentials via ADC, so its bearer is a gate only and is not forwarded.)
 - **Generation controls & structured output** — optional `temperature`, `maxOutputTokens`, `topP`, `topK`, `stopSequences`, plus `responseFormat: "json"` with an optional `outputSchema` for machine-parseable JSON, and `messages` for multi-turn chat and multimodal (image/document) input.
+- **Tool / function calling** — declare `tools` and the proxy returns the model's `toolCalls` for the client to run; results are sent back in a `tool`-role turn for a multi-step round-trip. Works on both endpoints (streaming surfaces calls in the `done` event).
 - **Safe error handling** — upstream/provider failures are classified and reduced to generic messages so internal details never leak; caller mistakes are reported verbatim.
 - **Observability** — structured `log/slog` logging with a per-request ID (`X-Request-ID`, UUID v4 fallback) and Prometheus metrics (request count, latency, and token counters) at `GET /metrics`.
 - **Production lifecycle** — panic recovery, configurable HTTP timeouts, and graceful shutdown on `SIGINT`/`SIGTERM`.
@@ -105,7 +106,8 @@ provider's API key.
 | `maxOutputTokens` / `topP` / `topK` | no | Generation controls (`≥ 1` / `0`–`1` / `≥ 1`). Provider defaults when omitted. |
 | `stopSequences` | no | Strings that halt generation when produced. |
 | `responseFormat` | no | `"json"` requests structured JSON output (optionally constrained by `outputSchema`, a JSON Schema). |
-| `messages` | no | Conversation turns (role `"user"`/`"model"`) for multi-turn chat and multimodal input. Each entry carries `content` (text) or `parts` — a list of `{"text"}` / `{"media":{"contentType","url"}}` for images/documents. A request needs `userMessage` or `messages`. |
+| `messages` | no | Conversation turns (role `"user"`/`"model"`/`"tool"`) for multi-turn chat, multimodal input, and tool round-trips. Each entry carries `content` (text) or `parts` — a list of `{"text"}` / `{"media":{"contentType","url"}}` / `{"toolRequest":…}` / `{"toolResponse":…}`. A request needs `userMessage` or `messages`. |
+| `tools` / `toolChoice` | no | Declare callable `tools` (`{"name","description"?,"inputSchema"?}`, unique names); the model's calls come back in `toolCalls`. `toolChoice` is `"auto"`/`"required"`/`"none"`. See the tool-calling round-trip in [`docs/api.md`](docs/api.md#tool-calling). |
 
 See [`docs/api.md`](docs/api.md) for the full field reference and bounds.
 
@@ -124,7 +126,9 @@ See [`docs/api.md`](docs/api.md) for the full field reference and bounds.
 block); inspect `finishReason` in that case. Common reasons: `stop`, `length`,
 `blocked`, `interrupted`, `other`, `unknown`. `usage` is omitted when the
 provider reports no token counts. When `responseFormat: "json"` is requested,
-valid JSON is returned inline in a `data` object instead of `output`.
+valid JSON is returned inline in a `data` object instead of `output`. When the
+model calls a declared tool, `output` is empty and `toolCalls` lists the
+requested calls for the client to run.
 
 **Example**
 
@@ -145,7 +149,7 @@ Errors are returned as JSON:
 
 | Status | Cause |
 |--------|-------|
-| `400` | Invalid request (bad JSON, neither `userMessage` nor `messages`, an out-of-range tuning field, invalid `responseFormat`/`outputSchema`, or a malformed `messages`/`parts`/`media` entry) or unsupported provider. |
+| `400` | Invalid request (bad JSON, neither `userMessage` nor `messages`, an out-of-range tuning field, invalid `responseFormat`/`outputSchema`, a malformed `messages`/`parts`/`media` entry, a missing/duplicate `tools` name, or invalid `toolChoice`) or unsupported provider. |
 | `401` | Missing/malformed bearer token, or upstream rejected the credentials. |
 | `403` | Upstream provider denied access. |
 | `404` | Requested model not found. |

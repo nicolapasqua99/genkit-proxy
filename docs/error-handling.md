@@ -77,8 +77,11 @@ string.
   nor `messages`, an out-of-range tuning field (`temperature`, `maxOutputTokens`,
   `topP`, `topK`), an invalid `responseFormat` or `outputSchema` without
   `responseFormat:"json"`, a malformed `messages` entry (bad role, not exactly one
-  of `content`/`parts`, a `parts` entry not exactly one of `text`/`media`, or
-  `media` missing `contentType`/`url`), or an unknown provider prefix → `400`.
+  of `content`/`parts`, a `parts` entry not exactly one of
+  `text`/`media`/`toolRequest`/`toolResponse`, `media` missing
+  `contentType`/`url`, or a tool part missing `name`), a `tools` entry with a
+  missing or duplicate `name`, an invalid `toolChoice`, or an unknown provider
+  prefix → `400`.
 - **During generation** (`generator.go` → provider SDK): everything classified
   by the tree above.
 

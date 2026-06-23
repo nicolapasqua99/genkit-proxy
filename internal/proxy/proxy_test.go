@@ -63,6 +63,15 @@ func TestHandlerServeHTTP(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			name:             "ok with tool calls",
+			method:           http.MethodPost,
+			auth:             "Bearer secret-key",
+			body:             `{"modelName":"googleai/gemini-2.5-flash","userMessage":"weather?","tools":[{"name":"get_weather","inputSchema":{"type":"object"}}]}`,
+			genResp:          GenerateResponse{Model: "googleai/gemini-2.5-flash", ToolCalls: []ToolCall{{Name: "get_weather", Ref: "a1", Input: json.RawMessage(`{"city":"SF"}`)}}},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: `"toolCalls":[{"name":"get_weather","ref":"a1","input":{"city":"SF"}}]`,
+		},
+		{
 			name:       "missing auth",
 			method:     http.MethodPost,
 			body:       `{"modelName":"googleai/gemini-2.5-flash","userMessage":"hi"}`,

@@ -96,6 +96,7 @@ func (handler *Handler) ServeStream(writer http.ResponseWriter, httpReq *http.Re
 	_ = writeSSEEvent(writer, "done", doneEvent{
 		Model:        final.Model,
 		FinishReason: final.FinishReason,
+		ToolCalls:    final.ToolCalls,
 		Usage:        final.Usage,
 	})
 	_ = controller.Flush()
@@ -108,9 +109,10 @@ type chunkEvent struct {
 
 // doneEvent is the SSE "done" payload sent once generation completes.
 type doneEvent struct {
-	Model        string `json:"model"`
-	FinishReason string `json:"finishReason,omitempty"`
-	Usage        *Usage `json:"usage,omitempty"`
+	Model        string     `json:"model"`
+	FinishReason string     `json:"finishReason,omitempty"`
+	ToolCalls    []ToolCall `json:"toolCalls,omitempty"`
+	Usage        *Usage     `json:"usage,omitempty"`
 }
 
 // writeSSEEvent writes one named Server-Sent Event with a JSON data payload.

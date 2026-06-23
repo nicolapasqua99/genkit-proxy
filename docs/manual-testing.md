@@ -25,8 +25,10 @@ they work offline.
 | Wrong scheme | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Basic x' -d '{"modelName":"googleai/x","userMessage":"hi"}'` | `401` |
 | Empty model segment | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"googleai/","userMessage":"hi"}'` | `400`, `{"error":"invalid modelName: missing model after provider prefix"}` |
 | Unsupported provider | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"cohere/command","userMessage":"hi"}'` | `400` |
-| Bad message role | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"googleai/x","userMessage":"hi","messages":[{"role":"assistant","content":"hey"}]}'` | `400`, `{"error":"invalid messages[0].role: must be \"user\" or \"model\""}` |
-| Empty message part | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"googleai/x","messages":[{"role":"user","parts":[{}]}]}'` | `400`, `{"error":"invalid messages[0].parts[0]: must set exactly one of text or media"}` |
+| Bad message role | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"googleai/x","userMessage":"hi","messages":[{"role":"assistant","content":"hey"}]}'` | `400`, `{"error":"invalid messages[0].role: must be \"user\", \"model\", or \"tool\""}` |
+| Empty message part | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"googleai/x","messages":[{"role":"user","parts":[{}]}]}'` | `400`, `{"error":"invalid messages[0].parts[0]: must set exactly one of text, media, toolRequest, or toolResponse"}` |
+| Tool missing name | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"googleai/x","userMessage":"hi","tools":[{"description":"no name"}]}'` | `400`, `{"error":"invalid tools[0].name: must not be empty"}` |
+| Invalid toolChoice | `curl -i -X POST localhost:8080/v1/generate -H 'Authorization: Bearer x' -d '{"modelName":"googleai/x","userMessage":"hi","toolChoice":"always"}'` | `400`, `{"error":"invalid toolChoice: must be \"auto\", \"required\", or \"none\" when set"}` |
 | Method not allowed | `curl -i localhost:8080/v1/generate` (GET) | `405` |
 
 ### Case-insensitive bearer scheme (RFC 7235)
@@ -148,6 +150,24 @@ curl -s -X POST localhost:8080/v1/generate \
       ]}]}'
 # expect: a description of the image (requires a vision-capable model)
 ```
+
+### Tool calling — tool-capable model
+
+Declare a tool; a tool-capable model returns a `toolCalls` entry instead of text.
+
+```bash
+curl -s -X POST localhost:8080/v1/generate \
+  -H "Authorization: Bearer $GOOGLEAI_API_KEY" \
+  -d '{"modelName":"googleai/gemini-2.5-flash","userMessage":"weather in SF?","tools":[
+        {"name":"get_weather","description":"Look up weather for a city.",
+         "inputSchema":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}]}'
+# expect: {"model":...,"output":"","toolCalls":[{"name":"get_weather","ref":...,"input":{"city":"SF"}}],...}
+```
+
+Complete the round-trip by resending `tools` plus `messages` containing the
+model's `toolRequest` turn and a `tool`-role `toolResponse` (matching `ref`); the
+model then answers in text. On `/v1/generate/stream` the calls arrive in the
+`done` event. Requires a model that supports function calling.
 
 ## Behaviors that are test-only
 

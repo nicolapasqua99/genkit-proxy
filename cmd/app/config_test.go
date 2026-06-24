@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -64,4 +65,97 @@ func TestLoadConfig(t *testing.T) {
 			t.Fatal("expected error, got nil")
 		}
 	})
+
+	t.Run("rate limit defaults", func(t *testing.T) {
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.rateLimitRPS != 60 {
+			t.Errorf("rateLimitRPS: got %d, want 60", cfg.rateLimitRPS)
+		}
+		if cfg.rateLimitWindow != time.Minute {
+			t.Errorf("rateLimitWindow: got %v, want 1m", cfg.rateLimitWindow)
+		}
+		if cfg.corsAllowOrigins != "*" {
+			t.Errorf("corsAllowOrigins: got %q, want %q", cfg.corsAllowOrigins, "*")
+		}
+	})
+
+	t.Run("RATE_LIMIT_MODELS parsed", func(t *testing.T) {
+		t.Setenv("RATE_LIMIT_MODELS", "googleai/gemini-2.5-flash:50,openai/gpt-4o:10")
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := map[string]int{
+			"googleai/gemini-2.5-flash": 50,
+			"openai/gpt-4o":             10,
+		}
+		if !reflect.DeepEqual(cfg.rateLimitByModel, want) {
+			t.Errorf("rateLimitByModel = %v, want %v", cfg.rateLimitByModel, want)
+		}
+	})
+}
+
+func TestParseModelLimits(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		want    map[string]int
+		wantErr bool
+	}{
+		{
+			name:  "empty string returns nil",
+			input: "",
+			want:  nil,
+		},
+		{
+			name:  "single entry",
+			input: "googleai/gemini-2.5-flash:50",
+			want:  map[string]int{"googleai/gemini-2.5-flash": 50},
+		},
+		{
+			name:  "multiple entries",
+			input: "googleai/gemini-2.5-flash:50,openai/gpt-4o:10",
+			want:  map[string]int{"googleai/gemini-2.5-flash": 50, "openai/gpt-4o": 10},
+		},
+		{
+			name:  "whitespace trimmed",
+			input: " googleai/gemini-2.5-flash:50 , openai/gpt-4o:10 ",
+			want:  map[string]int{"googleai/gemini-2.5-flash": 50, "openai/gpt-4o": 10},
+		},
+		{
+			name:    "missing colon",
+			input:   "googleai/gemini-2.5-flash",
+			wantErr: true,
+		},
+		{
+			name:    "non-integer limit",
+			input:   "googleai/gemini-2.5-flash:abc",
+			wantErr: true,
+		},
+		{
+			name:    "zero limit",
+			input:   "googleai/gemini-2.5-flash:0",
+			wantErr: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseModelLimits(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("parseModelLimits(%q): expected error, got nil", tc.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseModelLimits(%q): unexpected error: %v", tc.input, err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("parseModelLimits(%q) = %v, want %v", tc.input, got, tc.want)
+			}
+		})
+	}
 }

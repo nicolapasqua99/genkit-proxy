@@ -4,12 +4,32 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/nicolapasqua99/genkit-proxy/internal/ratelimit"
 )
+
+// fakeLimiter is a test double for ratelimit.Limiter.
+type fakeLimiter struct {
+	allowed    bool
+	retryAfter time.Duration
+	err        error
+	calls      int
+}
+
+func (f *fakeLimiter) Allow(_ context.Context, _ string, _ int) (bool, time.Duration, error) {
+	f.calls++
+	return f.allowed, f.retryAfter, f.err
+}
+func (f *fakeLimiter) Close() error { return nil }
+
+var _ ratelimit.Limiter = (*fakeLimiter)(nil)
 
 func TestRecover(t *testing.T) {
 	t.Run("panic before write", func(t *testing.T) {
@@ -188,6 +208,153 @@ func TestRequestIDFromContext(t *testing.T) {
 	t.Run("returns empty string when absent", func(t *testing.T) {
 		if got := requestIDFromContext(context.Background()); got != "" {
 			t.Errorf("got %q, want empty", got)
+		}
+	})
+}
+
+func TestRateLimitMiddleware(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	t.Run("allowed passes through to next", func(t *testing.T) {
+		lim := &fakeLimiter{allowed: true}
+		handler := RateLimit(lim, 10)(next)
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want 200", rec.Code)
+		}
+		if lim.calls != 1 {
+			t.Errorf("limiter called %d times, want 1", lim.calls)
+		}
+	})
+
+	t.Run("denied returns 429 with Retry-After", func(t *testing.T) {
+		lim := &fakeLimiter{allowed: false, retryAfter: 5 * time.Second}
+		handler := RateLimit(lim, 10)(next)
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusTooManyRequests {
+			t.Errorf("status = %d, want 429", rec.Code)
+		}
+		if got := rec.Header().Get("Retry-After"); got != "5" {
+			t.Errorf("Retry-After = %q, want %q", got, "5")
+		}
+	})
+
+	t.Run("no bearer token passes through", func(t *testing.T) {
+		lim := &fakeLimiter{}
+		handler := RateLimit(lim, 10)(next)
+		req := httptest.NewRequest(http.MethodPost, "/", nil) // no auth header
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want 200 (no token → pass through)", rec.Code)
+		}
+		if lim.calls != 0 {
+			t.Errorf("limiter called %d times, want 0 (no token)", lim.calls)
+		}
+	})
+
+	t.Run("limiter error fails open", func(t *testing.T) {
+		lim := &fakeLimiter{allowed: false, err: errors.New("backend down")}
+		handler := RateLimit(lim, 10)(next)
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want 200 (fail-open on error)", rec.Code)
+		}
+	})
+
+	t.Run("zero limit disables middleware", func(t *testing.T) {
+		lim := &fakeLimiter{}
+		handler := RateLimit(lim, 0)(next)
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want 200 (disabled)", rec.Code)
+		}
+		if lim.calls != 0 {
+			t.Errorf("limiter called %d times, want 0 (disabled)", lim.calls)
+		}
+	})
+}
+
+func TestCORSMiddleware(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	cors := CORS("*")
+
+	t.Run("OPTIONS preflight returns 204 and does not call next", func(t *testing.T) {
+		called := false
+		handler := cors(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusOK)
+		}))
+		req := httptest.NewRequest(http.MethodOptions, "/v1/generate", nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("status = %d, want 204", rec.Code)
+		}
+		if called {
+			t.Error("next handler must not be called for OPTIONS preflight")
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+			t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, "*")
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, "POST") {
+			t.Errorf("Access-Control-Allow-Methods = %q, want it to contain POST", got)
+		}
+	})
+
+	t.Run("POST request has CORS headers and reaches next", func(t *testing.T) {
+		handler := cors(next)
+		req := httptest.NewRequest(http.MethodPost, "/v1/generate", nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want 200", rec.Code)
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+			t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, "*")
+		}
+	})
+
+	t.Run("custom origin is echoed", func(t *testing.T) {
+		const origin = "https://example.com"
+		handler := CORS(origin)(next)
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != origin {
+			t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, origin)
 		}
 	})
 }

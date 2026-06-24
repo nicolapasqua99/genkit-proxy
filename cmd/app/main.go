@@ -18,10 +18,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/nicolapasqua99/genkit-proxy/internal/proxy"
+	"github.com/nicolapasqua99/genkit-proxy/internal/ratelimit"
 )
 
 // version and buildTime are overridden at link time via -ldflags -X.
@@ -43,7 +47,39 @@ func main() {
 		os.Exit(1)
 	}
 
-	handler := proxy.NewHandler(proxy.NewGenkitGenerator(cfg.generateTimeout))
+	var redisClient redis.UniversalClient
+	switch {
+	case cfg.redisClusterAddrs != "":
+		redisClient = redis.NewClusterClient(&redis.ClusterOptions{
+			Addrs: strings.Split(cfg.redisClusterAddrs, ","),
+		})
+	case cfg.redisSentinelAddrs != "" && cfg.redisMasterName != "":
+		redisClient = redis.NewFailoverClient(&redis.FailoverOptions{
+			MasterName:    cfg.redisMasterName,
+			SentinelAddrs: strings.Split(cfg.redisSentinelAddrs, ","),
+		})
+	case cfg.redisURL != "":
+		opt, parseErr := redis.ParseURL(cfg.redisURL)
+		if parseErr != nil {
+			slog.Error("REDIS_URL parse error", "err", parseErr)
+			os.Exit(1)
+		}
+		redisClient = redis.NewClient(opt)
+	}
+
+	var lim ratelimit.Limiter
+	if redisClient != nil {
+		lim = ratelimit.NewRedisLimiter(redisClient, cfg.rateLimitWindow)
+	} else {
+		lim = ratelimit.NewMemoryLimiter(cfg.rateLimitWindow)
+	}
+	defer lim.Close() //nolint:errcheck
+
+	handler := proxy.NewHandler(
+		proxy.NewGenkitGenerator(cfg.generateTimeout),
+		lim,
+		cfg.handlerRateLimitConfig(),
+	)
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/generate", handler)
@@ -63,9 +99,21 @@ func main() {
 		})
 	})
 
+	chain := proxy.CORS(cfg.corsAllowOrigins)(
+		proxy.Recover(
+			proxy.RequestID(
+				proxy.RateLimit(lim, cfg.rateLimitRPS)(
+					proxy.Logger(
+						metrics.Middleware(mux),
+					),
+				),
+			),
+		),
+	)
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.port,
-		Handler:           proxy.Recover(proxy.RequestID(proxy.Logger(metrics.Middleware(mux)))),
+		Handler:           chain,
 		ReadHeaderTimeout: cfg.readHeaderTimeout,
 		ReadTimeout:       cfg.readTimeout,
 		WriteTimeout:      cfg.writeTimeout,

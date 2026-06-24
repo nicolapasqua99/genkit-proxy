@@ -4,9 +4,14 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/nicolapasqua99/genkit-proxy/internal/ratelimit"
 )
 
 // contextKey is an unexported type for context keys in this package to avoid
@@ -136,4 +141,69 @@ func (writer *statusWriter) Write(data []byte) (int, error) {
 // the underlying Flusher and deadline setter (used by the streaming handler).
 func (writer *statusWriter) Unwrap() http.ResponseWriter {
 	return writer.ResponseWriter
+}
+
+// RateLimit returns a middleware that enforces a global per-token fixed-window
+// request limit using lim. Requests without a bearer token are passed through
+// unchanged (the downstream handler handles missing auth). Backend errors from
+// lim are logged and the request is allowed (fail-open). Requests that exceed
+// the limit receive a 429 response with a Retry-After header.
+//
+// A limit of zero or less disables the middleware (pass-through).
+func RateLimit(lim ratelimit.Limiter, limit int) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if limit <= 0 {
+				next.ServeHTTP(w, r)
+				return
+			}
+			token, err := bearerToken(r)
+			if err != nil {
+				// No valid bearer token — let downstream handler reject it.
+				next.ServeHTTP(w, r)
+				return
+			}
+			ctx := r.Context()
+			spanCtx, span := otel.Tracer("proxy").Start(ctx, "ratelimit.check")
+			allowed, retryAfter, rlErr := lim.Allow(spanCtx, sha256hex(token), limit)
+			span.SetAttributes(
+				attribute.String("rl.layer", "global"),
+				attribute.Bool("rl.allowed", allowed),
+				attribute.Int("rl.retry_after_sec", int(retryAfter.Seconds())),
+			)
+			span.End()
+			if rlErr != nil {
+				slog.WarnContext(ctx, "rate limiter error", "err", rlErr)
+				next.ServeHTTP(w, r) // fail open on backend error
+				return
+			}
+			if !allowed {
+				w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// CORS returns a middleware that adds cross-origin resource sharing headers to
+// every response. The allowOrigins string is used verbatim as the value of
+// Access-Control-Allow-Origin (pass "*" to allow all origins). Methods and
+// headers are hardcoded to the set needed by the proxy API. OPTIONS preflight
+// requests are short-circuited with 204.
+func CORS(allowOrigins string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", allowOrigins)
+			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

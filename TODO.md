@@ -114,8 +114,13 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   per-model/provider, per-stream) backed by in-memory or Redis (Sentinel / Cluster); CORS
   middleware with configurable `CORS_ALLOW_ORIGINS`. Retry-with-backoff on transient upstream
   errors is a follow-up item (generator layer).
-- [ ] **Retry-with-backoff** on transient upstream errors (generator layer, follow-up to rate
-  limiting PR).
+- [x] **Retry-with-backoff** on transient upstream errors — `internal/proxy/retry.go`
+  `RetryingGenerator` wraps the generator with exponential backoff and full jitter (capped at
+  10s). Only transient errors are retried (rate-limit `429` / generic `5xx`); timeouts are not,
+  since each attempt spends the per-request deadline budget. A stream is not retried once a chunk
+  has been sent. Wired in `cmd/app/main.go` via `NewRetryingGenerator`, env-configurable with
+  `RETRY_MAX_ATTEMPTS` (default 3) and `RETRY_BASE_BACKOFF` (default 100ms), and covered by
+  `internal/proxy/retry_test.go`.
 - [x] **Testing seam for `GenkitGenerator`** — `GenkitGenerator.Generate` is wholly untested
   (it needs real keys/network). Introduce a seam so error-classification and option-mapping can
   be unit-tested against a fake provider.

@@ -110,8 +110,12 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
 - [ ] **Model allowlist / per-tenant policy** — restrict which models a caller may invoke.
 - [ ] **Decoupled gateway auth** — authenticate the tenant with its own key and resolve the
   provider key from Secret Manager, instead of the current raw pass-through.
-- [ ] **Rate limiting, CORS, retry-with-backoff** on transient upstream errors. Fold the abuse
-  surface (the 1 MiB body cap and request timeouts) into the rate-limiting story.
-- [ ] **Testing seam for `GenkitGenerator`** — `GenkitGenerator.Generate` is wholly untested
+- [x] **Rate limiting, CORS** — three-layer fixed-window rate limiting (global per-token,
+  per-model/provider, per-stream) backed by in-memory or Redis (Sentinel / Cluster); CORS
+  middleware with configurable `CORS_ALLOW_ORIGINS`. Retry-with-backoff on transient upstream
+  errors is a follow-up item (generator layer).
+- [ ] **Retry-with-backoff** on transient upstream errors (generator layer, follow-up to rate
+  limiting PR).
+- [x] **Testing seam for `GenkitGenerator`** — `GenkitGenerator.Generate` is wholly untested
   (it needs real keys/network). Introduce a seam so error-classification and option-mapping can
   be unit-tested against a fake provider.

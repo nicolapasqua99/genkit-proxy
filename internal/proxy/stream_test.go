@@ -90,7 +90,7 @@ func TestHandlerServeStream(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			fake := &fakeGenerator{resp: testCase.genResp, err: testCase.genErr, streamDeltas: testCase.deltas}
-			handler := NewHandler(fake, nil, HandlerRLConfig{})
+			handler := NewHandler(fake, nil, HandlerRLConfig{}, nil)
 			req := httptest.NewRequest(http.MethodPost, "/v1/generate/stream", strings.NewReader(testCase.body))
 			if testCase.auth != "" {
 				req.Header.Set("Authorization", testCase.auth)
@@ -133,7 +133,7 @@ func TestStatusWriterUnwrapFlushes(t *testing.T) {
 func TestStreamGeneratorErrorIsSanitized(t *testing.T) {
 	// A pre-stream error must not leak the raw provider message to the client.
 	fake := &fakeGenerator{err: errors.New("internal detail leak")}
-	handler := NewHandler(fake, nil, HandlerRLConfig{})
+	handler := NewHandler(fake, nil, HandlerRLConfig{}, nil)
 	req := httptest.NewRequest(http.MethodPost, "/v1/generate/stream",
 		strings.NewReader(`{"modelName":"googleai/gemini-2.5-flash","userMessage":"hi"}`))
 	req.Header.Set("Authorization", "Bearer k")
@@ -146,5 +146,24 @@ func TestStreamGeneratorErrorIsSanitized(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), "internal detail leak") {
 		t.Errorf("raw error leaked: %q", recorder.Body.String())
+	}
+}
+
+func TestStreamModelAllowlist(t *testing.T) {
+	allow := NewModelAllowlist([]string{"googleai/gemini-2.5-flash"})
+	fake := &fakeGenerator{streamDeltas: []string{"hi"}, resp: GenerateResponse{Model: "googleai/gemini-2.5-pro"}}
+	handler := NewHandler(fake, nil, HandlerRLConfig{}, allow)
+	req := httptest.NewRequest(http.MethodPost, "/v1/generate/stream",
+		strings.NewReader(`{"modelName":"googleai/gemini-2.5-pro","userMessage":"hi"}`))
+	req.Header.Set("Authorization", "Bearer k")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeStream(recorder, req)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body %q)", recorder.Code, recorder.Body.String())
+	}
+	if fake.gotKey != "" {
+		t.Error("generator should not be called for a disallowed model")
 	}
 }

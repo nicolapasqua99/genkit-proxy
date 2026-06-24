@@ -200,6 +200,7 @@ supplied per request in the `Authorization` header.
 | `GENKIT_CACHE_ENABLED` | `true` | Reuse Genkit instances across requests, keyed by provider + API key, to avoid re-initialising the provider client each call. Set `false` for a fresh instance per request. Caching keeps the provider credential resident in memory for the entry's lifetime. |
 | `GENKIT_CACHE_TTL` | `10m` | Idle expiry for a cached instance; also bounds credential residency. `0` disables time-based eviction. |
 | `GENKIT_CACHE_MAX_SIZE` | `1024` | Max cached instances (least-recently-used evicted first). `0` disables the size cap. |
+| `MODEL_ALLOWLIST` | _(unset)_ | Comma-separated list of permitted models. Each entry is a full model name (`googleai/gemini-2.5-flash`) or a bare provider (`openai`) that allows all its models. A request for any other model gets `403`. Unset allows every model. |
 
 The variables above are read by the proxy itself. **Vertex AI** additionally
 relies on standard Google Cloud environment, read by the Genkit/GCP SDK (not by

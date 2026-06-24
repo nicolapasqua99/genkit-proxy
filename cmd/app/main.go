@@ -89,6 +89,7 @@ func main() {
 		),
 		lim,
 		cfg.handlerRateLimitConfig(),
+		proxy.NewModelAllowlist(cfg.modelAllowlist),
 	)
 
 	mux := http.NewServeMux()

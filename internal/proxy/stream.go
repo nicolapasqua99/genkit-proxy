@@ -40,6 +40,10 @@ func (handler *Handler) ServeStream(writer http.ResponseWriter, httpReq *http.Re
 
 	ctx := httpReq.Context()
 
+	if !handler.allowModel(writer, req.ModelName) {
+		return
+	}
+
 	if !handler.checkModelLimit(writer, ctx, apiKey, req.ModelName) {
 		return
 	}

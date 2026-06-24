@@ -125,7 +125,14 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   cleanup depends on parent-ctx cancellation, so a cache must `Init` with a long-lived context and
   evict with a cancel, or each cached `(provider, key)` instance pins its signal goroutine for the
   process lifetime.
-- [ ] **Model allowlist / per-tenant policy** — restrict which models a caller may invoke.
+- [x] **Model allowlist** — `internal/proxy/policy.go` `ModelAllowlist` restricts which models a
+  caller may invoke. Entries are exact model names (`googleai/gemini-2.5-flash`) or bare provider
+  wildcards (`openai`); a request whose model and provider are both unlisted is rejected with `403`
+  before rate limiting and generation, in both `ServeHTTP` and `ServeStream`. Configured via
+  `MODEL_ALLOWLIST` (comma-separated); unset allows every model (open default preserved). Covered
+  by `internal/proxy/policy_test.go` and handler tests. *Per-tenant* policy remains future work: it
+  needs tenant identity, which depends on the decoupled gateway-auth item below (the bearer is
+  currently an opaque provider key, so there is no tenant to key a policy on).
 - [ ] **Decoupled gateway auth** — authenticate the tenant with its own key and resolve the
   provider key from Secret Manager, instead of the current raw pass-through.
 - [x] **Rate limiting, CORS** — three-layer fixed-window rate limiting (global per-token,

@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"math/rand/v2"
 	"time"
@@ -103,14 +102,13 @@ func (r *RetryingGenerator) GenerateStream(ctx context.Context, req GenerateRequ
 	return GenerateResponse{}, lastErr
 }
 
-// isRetryable reports whether err represents a transient upstream condition
-// that warrants a retry. context.Canceled (client disconnected) is not retried.
+// isRetryable reports whether err is a transient upstream condition (429 or
+// generic 5xx) that warrants a retry. Timeouts are not retried because each
+// attempt consumes the per-request deadline budget.
 func isRetryable(err error) bool {
 	switch classify(err) {
 	case categoryRateLimit, categoryUpstream:
 		return true
-	case categoryTimeout:
-		return !errors.Is(err, context.Canceled)
 	}
 	return false
 }

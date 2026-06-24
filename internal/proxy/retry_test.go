@@ -115,30 +115,17 @@ func TestRetryingGenerator(t *testing.T) {
 		}
 	})
 
-	t.Run("retry_on_deadline_exceeded", func(t *testing.T) {
-		fake := &seqFakeGen{responses: []seqFakeResponse{
-			{err: context.DeadlineExceeded},
-			{resp: GenerateResponse{Output: "ok"}},
-		}}
-		gen := NewRetryingGenerator(fake, 3, 0)
-		_, err := gen.Generate(context.Background(), retryMinReq, "key")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if fake.calls() != 2 {
-			t.Errorf("calls = %d, want 2", fake.calls())
-		}
-	})
-
-	t.Run("no_retry_on_canceled", func(t *testing.T) {
-		fake := &seqFakeGen{responses: []seqFakeResponse{{err: context.Canceled}}}
-		gen := NewRetryingGenerator(fake, 3, 0)
-		_, err := gen.Generate(context.Background(), retryMinReq, "key")
-		if !errors.Is(err, context.Canceled) {
-			t.Errorf("err = %v, want context.Canceled", err)
-		}
-		if fake.calls() != 1 {
-			t.Errorf("calls = %d, want 1 (no retry for canceled)", fake.calls())
+	t.Run("no_retry_on_timeout", func(t *testing.T) {
+		for _, timeoutErr := range []error{context.DeadlineExceeded, context.Canceled} {
+			fake := &seqFakeGen{responses: []seqFakeResponse{{err: timeoutErr}}}
+			gen := NewRetryingGenerator(fake, 3, 0)
+			_, err := gen.Generate(context.Background(), retryMinReq, "key")
+			if err == nil {
+				t.Fatalf("%v: expected error", timeoutErr)
+			}
+			if fake.calls() != 1 {
+				t.Errorf("%v: calls = %d, want 1 (timeouts not retried)", timeoutErr, fake.calls())
+			}
 		}
 	})
 

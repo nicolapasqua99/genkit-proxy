@@ -110,6 +110,48 @@ func TestLoadConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("cache defaults", func(t *testing.T) {
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !cfg.cacheEnabled {
+			t.Error("cacheEnabled: got false, want true")
+		}
+		if cfg.cacheTTL != 10*time.Minute {
+			t.Errorf("cacheTTL: got %v, want 10m", cfg.cacheTTL)
+		}
+		if cfg.cacheMaxSize != 1024 {
+			t.Errorf("cacheMaxSize: got %d, want 1024", cfg.cacheMaxSize)
+		}
+	})
+
+	t.Run("cache env vars parsed", func(t *testing.T) {
+		t.Setenv("GENKIT_CACHE_ENABLED", "false")
+		t.Setenv("GENKIT_CACHE_TTL", "5m")
+		t.Setenv("GENKIT_CACHE_MAX_SIZE", "32")
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.cacheEnabled {
+			t.Error("cacheEnabled: got true, want false")
+		}
+		if cfg.cacheTTL != 5*time.Minute {
+			t.Errorf("cacheTTL: got %v, want 5m", cfg.cacheTTL)
+		}
+		if cfg.cacheMaxSize != 32 {
+			t.Errorf("cacheMaxSize: got %d, want 32", cfg.cacheMaxSize)
+		}
+	})
+
+	t.Run("invalid GENKIT_CACHE_ENABLED returns error", func(t *testing.T) {
+		t.Setenv("GENKIT_CACHE_ENABLED", "notabool")
+		if _, err := loadConfig(); err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+
 	t.Run("RATE_LIMIT_MODELS parsed", func(t *testing.T) {
 		t.Setenv("RATE_LIMIT_MODELS", "googleai/gemini-2.5-flash:50,openai/gpt-4o:10")
 		cfg, err := loadConfig()

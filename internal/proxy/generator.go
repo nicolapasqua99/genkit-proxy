@@ -36,13 +36,43 @@ type GenkitGenerator struct {
 }
 
 // NewGenkitGenerator returns a GenkitGenerator that applies timeout to each
-// upstream Generate call. Pass zero to rely solely on the request context.
-func NewGenkitGenerator(timeout time.Duration) GenkitGenerator {
+// upstream Generate call. Pass zero to rely solely on the request context. When
+// cache is non-nil, Genkit instances are reused from it instead of being
+// initialised per request; pass nil to initialise a fresh instance each call.
+func NewGenkitGenerator(timeout time.Duration, cache *GenkitCache) GenkitGenerator {
+	src := newAppSource(cache)
 	return GenkitGenerator{
 		GenerateTimeout: timeout,
-		run:             genkitRun,
-		runStream:       genkitRunStream,
+		run: func(ctx context.Context, req GenerateRequest, apiKey string) (*ai.ModelResponse, error) {
+			return genkitRun(ctx, req, apiKey, src)
+		},
+		runStream: func(ctx context.Context, req GenerateRequest, apiKey string, onChunk func(delta string) error) (*ai.ModelResponse, error) {
+			return genkitRunStream(ctx, req, apiKey, onChunk, src)
+		},
 	}
+}
+
+// appSource yields a *genkit.Genkit for a model's provider and apiKey. It is the
+// seam between per-request initialisation and the instance cache.
+type appSource func(ctx context.Context, modelName, apiKey string) (*genkit.Genkit, error)
+
+// newAppSource returns the cache's lookup when caching is enabled, or freshApp
+// (a new instance per call, owned by the request context) when cache is nil.
+func newAppSource(cache *GenkitCache) appSource {
+	if cache != nil {
+		return cache.get
+	}
+	return freshApp
+}
+
+// freshApp initialises a new Genkit instance per call, bound to the request
+// context, matching the proxy's original per-request behaviour.
+func freshApp(ctx context.Context, modelName, apiKey string) (*genkit.Genkit, error) {
+	plugin, err := pluginFor(modelName, apiKey)
+	if err != nil {
+		return nil, err
+	}
+	return genkit.Init(ctx, genkit.WithPlugins(plugin)), nil
 }
 
 // Generate implements Generator using Genkit's unified Generate API.
@@ -95,29 +125,27 @@ func (g GenkitGenerator) GenerateStream(ctx context.Context, req GenerateRequest
 	return out, nil
 }
 
-// genkitRun is the real implementation of GenkitGenerator.run. It selects the
-// provider plugin, initialises a per-request Genkit instance, assembles options,
-// and calls genkit.Generate.
-func genkitRun(ctx context.Context, req GenerateRequest, apiKey string) (*ai.ModelResponse, error) {
-	plugin, err := pluginFor(req.ModelName, apiKey)
+// genkitRun is the real implementation of GenkitGenerator.run. It obtains a
+// Genkit instance for the model's provider from src, assembles options, and
+// calls genkit.Generate.
+func genkitRun(ctx context.Context, req GenerateRequest, apiKey string, src appSource) (*ai.ModelResponse, error) {
+	genkitApp, err := src(ctx, req.ModelName, apiKey)
 	if err != nil {
 		return nil, err
 	}
-	genkitApp := genkit.Init(ctx, genkit.WithPlugins(plugin))
-	opts := append(generateOptions(req), toolOptions(genkitApp, req)...)
+	opts := append(generateOptions(req), toolOptions(req)...)
 	return genkit.Generate(ctx, genkitApp, opts...)
 }
 
 // genkitRunStream is the real implementation of GenkitGenerator.runStream. It
-// sets up the same per-request Genkit instance as genkitRun, then iterates the
-// stream, forwarding text deltas to onChunk and returning the final response.
-func genkitRunStream(ctx context.Context, req GenerateRequest, apiKey string, onChunk func(delta string) error) (*ai.ModelResponse, error) {
-	plugin, err := pluginFor(req.ModelName, apiKey)
+// obtains the same Genkit instance as genkitRun, then iterates the stream,
+// forwarding text deltas to onChunk and returning the final response.
+func genkitRunStream(ctx context.Context, req GenerateRequest, apiKey string, onChunk func(delta string) error, src appSource) (*ai.ModelResponse, error) {
+	genkitApp, err := src(ctx, req.ModelName, apiKey)
 	if err != nil {
 		return nil, err
 	}
-	genkitApp := genkit.Init(ctx, genkit.WithPlugins(plugin))
-	opts := append(generateOptions(req), toolOptions(genkitApp, req)...)
+	opts := append(generateOptions(req), toolOptions(req)...)
 	var final *ai.ModelResponse
 	for value, streamErr := range genkit.GenerateStream(ctx, genkitApp, opts...) {
 		if streamErr != nil {
@@ -163,12 +191,14 @@ func generateOptions(req GenerateRequest) []ai.GenerateOption {
 	return opts
 }
 
-// toolOptions registers a stub tool per client-declared tool and returns the
+// toolOptions builds one dynamic tool per client-declared tool and returns the
 // Genkit options that forward the declarations and return the model's tool calls
 // instead of executing them. The stub functions are never invoked, because
-// WithReturnToolRequests short-circuits before any tool runs. Registration is
-// local to this per-request Genkit instance, so there is no cross-request state.
-func toolOptions(genkitApp *genkit.Genkit, req GenerateRequest) []ai.GenerateOption {
+// WithReturnToolRequests short-circuits before any tool runs. ai.NewTool
+// produces dynamic, unregistered tools that genkit.Generate registers into a
+// per-request child registry, so a cached, reused instance's registry is never
+// mutated across requests.
+func toolOptions(req GenerateRequest) []ai.GenerateOption {
 	if len(req.Tools) == 0 {
 		return nil
 	}
@@ -178,7 +208,7 @@ func toolOptions(genkitApp *genkit.Genkit, req GenerateRequest) []ai.GenerateOpt
 		if len(schema) == 0 {
 			schema = map[string]any{"type": "object"}
 		}
-		refs[i] = genkit.DefineTool(genkitApp, tool.Name, tool.Description,
+		refs[i] = ai.NewTool(tool.Name, tool.Description,
 			func(_ *ai.ToolContext, _ any) (any, error) {
 				return nil, errors.New("tool execution is delegated to the client")
 			},

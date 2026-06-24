@@ -197,6 +197,9 @@ supplied per request in the `Authorization` header.
 | `WRITE_TIMEOUT` | `120s` | Max time to write the response. |
 | `IDLE_TIMEOUT` | `60s` | Max keep-alive idle time. |
 | `GENERATE_TIMEOUT` | `30s` | Max time for the upstream generation call. |
+| `GENKIT_CACHE_ENABLED` | `true` | Reuse Genkit instances across requests, keyed by provider + API key, to avoid re-initialising the provider client each call. Set `false` for a fresh instance per request. Caching keeps the provider credential resident in memory for the entry's lifetime. |
+| `GENKIT_CACHE_TTL` | `10m` | Idle expiry for a cached instance; also bounds credential residency. `0` disables time-based eviction. |
+| `GENKIT_CACHE_MAX_SIZE` | `1024` | Max cached instances (least-recently-used evicted first). `0` disables the size cap. |
 
 The variables above are read by the proxy itself. **Vertex AI** additionally
 relies on standard Google Cloud environment, read by the Genkit/GCP SDK (not by

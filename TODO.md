@@ -102,8 +102,17 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
 
 ## Tier 3 — Scaling / governance / security
 
-- [ ] **Genkit instance cache** — cache instances keyed by a hash of (provider, key) to
-  avoid a fresh `genkit.Init` per request. Note the in-memory-credential tradeoff.
+- [x] **Genkit instance cache** — `internal/proxy/cache.go` `GenkitCache` memoises
+  `*genkit.Genkit` instances keyed by a SHA-256 hash of (provider, apiKey), so the proxy reuses
+  the provider client and connection pool instead of running `genkit.Init` per request.
+  Concurrent first-hits for a key dedup onto a single build (a "future"); instances are
+  initialised with a cache-lifetime context (per the audit caveat) and released on eviction or
+  `Close`. Bounded by an idle TTL (background janitor + lazy expiry) **and** a max-size LRU, which
+  also bound how long a tenant credential stays resident in memory — the in-memory-credential
+  tradeoff. Tools switched to dynamic `ai.NewTool` so a reused instance's registry is never
+  mutated. Enabled by default; configured via `GENKIT_CACHE_ENABLED` (default true),
+  `GENKIT_CACHE_TTL` (default 10m), `GENKIT_CACHE_MAX_SIZE` (default 1024). Covered by
+  `internal/proxy/cache_test.go`.
 - [x] **`genkit.Init`-per-request global-state audit** — audited `genkit.Init` (v1.8.0).
   Findings: the registry is instance-local (`registry.New()`; GC'd with the `*Genkit`, no global
   state), the global tracer provider is set once via `sync.Once` (no per-Init accumulation), and

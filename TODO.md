@@ -104,9 +104,18 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
 
 - [ ] **Genkit instance cache** — cache instances keyed by a hash of (provider, key) to
   avoid a fresh `genkit.Init` per request. Note the in-memory-credential tradeoff.
-- [ ] **`genkit.Init`-per-request global-state audit** — verify that repeated, concurrent
-  `genkit.Init` calls do not leak registries/goroutines or register global telemetry side
-  effects. *Why:* robustness prerequisite for, and partly mooted by, the instance cache above.
+- [x] **`genkit.Init`-per-request global-state audit** — audited `genkit.Init` (v1.8.0).
+  Findings: the registry is instance-local (`registry.New()`; GC'd with the `*Genkit`, no global
+  state), the global tracer provider is set once via `sync.Once` (no per-Init accumulation), and
+  the reflection-server goroutine is dev-only. The one per-Init goroutine comes from
+  `signal.NotifyContext(ctx, …)` whose `stop` is discarded; it is released when the parent context
+  is cancelled, which in the proxy is the per-request timeout/request context, so there is **no
+  permanent leak** in the request-scoped model — cost is bounded by in-flight concurrency.
+  Regression guard: `internal/proxy/init_audit_test.go` asserts no goroutine growth under repeated
+  and concurrent request-scoped Init. *Caveat for the cache below:* because `stop` is discarded,
+  cleanup depends on parent-ctx cancellation, so a cache must `Init` with a long-lived context and
+  evict with a cancel, or each cached `(provider, key)` instance pins its signal goroutine for the
+  process lifetime.
 - [ ] **Model allowlist / per-tenant policy** — restrict which models a caller may invoke.
 - [ ] **Decoupled gateway auth** — authenticate the tenant with its own key and resolve the
   provider key from Secret Manager, instead of the current raw pass-through.

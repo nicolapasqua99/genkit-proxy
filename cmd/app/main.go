@@ -75,9 +75,15 @@ func main() {
 	}
 	defer lim.Close() //nolint:errcheck
 
+	var cache *proxy.GenkitCache
+	if cfg.cacheEnabled {
+		cache = proxy.NewGenkitCache(cfg.cacheTTL, cfg.cacheMaxSize)
+		defer cache.Close()
+	}
+
 	handler := proxy.NewHandler(
 		proxy.NewRetryingGenerator(
-			proxy.NewGenkitGenerator(cfg.generateTimeout),
+			proxy.NewGenkitGenerator(cfg.generateTimeout, cache),
 			cfg.retryMaxAttempts,
 			cfg.retryBaseBackoff,
 		),

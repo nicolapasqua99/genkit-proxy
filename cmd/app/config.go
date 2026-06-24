@@ -41,6 +41,11 @@ type config struct {
 	// Retry
 	retryMaxAttempts int           // RETRY_MAX_ATTEMPTS, default 3
 	retryBaseBackoff time.Duration // RETRY_BASE_BACKOFF, default 100ms
+
+	// Genkit instance cache
+	cacheEnabled bool          // GENKIT_CACHE_ENABLED, default true
+	cacheTTL     time.Duration // GENKIT_CACHE_TTL, default 10m
+	cacheMaxSize int           // GENKIT_CACHE_MAX_SIZE, default 1024
 }
 
 // loadConfig reads server and generator settings from the environment. Missing
@@ -60,6 +65,9 @@ func loadConfig() (config, error) {
 		corsAllowOrigins:  "*",
 		retryMaxAttempts:  3,
 		retryBaseBackoff:  100 * time.Millisecond,
+		cacheEnabled:      true,
+		cacheTTL:          10 * time.Minute,
+		cacheMaxSize:      1024,
 	}
 
 	if v := os.Getenv("PORT"); v != "" {
@@ -77,6 +85,7 @@ func loadConfig() (config, error) {
 		{"GENERATE_TIMEOUT", &cfg.generateTimeout},
 		{"RATE_LIMIT_WINDOW", &cfg.rateLimitWindow},
 		{"RETRY_BASE_BACKOFF", &cfg.retryBaseBackoff},
+		{"GENKIT_CACHE_TTL", &cfg.cacheTTL},
 	}
 	for _, d := range durations {
 		v := os.Getenv(d.env)
@@ -101,6 +110,7 @@ func loadConfig() (config, error) {
 		{"RATE_LIMIT_ANTHROPIC_RPS", &cfg.rateLimitAnthropicRPS},
 		{"RATE_LIMIT_VERTEXAI_RPS", &cfg.rateLimitVertexAIRPS},
 		{"RETRY_MAX_ATTEMPTS", &cfg.retryMaxAttempts},
+		{"GENKIT_CACHE_MAX_SIZE", &cfg.cacheMaxSize},
 	}
 	for _, i := range integers {
 		v := os.Getenv(i.env)
@@ -136,6 +146,14 @@ func loadConfig() (config, error) {
 			return config{}, err
 		}
 		cfg.rateLimitByModel = byModel
+	}
+
+	if v := os.Getenv("GENKIT_CACHE_ENABLED"); v != "" {
+		enabled, err := strconv.ParseBool(v)
+		if err != nil {
+			return config{}, fmt.Errorf("GENKIT_CACHE_ENABLED: %w", err)
+		}
+		cfg.cacheEnabled = enabled
 	}
 
 	return cfg, nil

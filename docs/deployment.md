@@ -73,6 +73,14 @@ credentials are **not** configured here — they arrive per request in the
 | `WRITE_TIMEOUT` | `120s` | Max time to write the response. |
 | `IDLE_TIMEOUT` | `60s` | Max keep-alive idle time. |
 | `GENERATE_TIMEOUT` | `30s` | Max time for the upstream generation call. |
+| `GENKIT_CACHE_ENABLED` | `true` | Reuse Genkit instances across requests, keyed by provider + API key, avoiding a `genkit.Init` (and provider client/connection-pool build) per request. Set `false` to initialise a fresh instance per request. |
+| `GENKIT_CACHE_TTL` | `10m` | Idle expiry for a cached instance. `0` disables time-based eviction. |
+| `GENKIT_CACHE_MAX_SIZE` | `1024` | Max cached instances (least-recently-used evicted first). `0` disables the size cap. |
+
+> **Credential residency:** caching keeps a tenant's provider credential
+> resident in memory inside the cached instance until the entry is evicted. The
+> TTL and max-size bounds limit that window; lower `GENKIT_CACHE_TTL` (or set
+> `GENKIT_CACHE_ENABLED=false`) if your threat model requires minimal residency.
 
 ## Health, readiness, and shutdown
 

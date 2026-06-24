@@ -29,32 +29,35 @@ type GenkitGenerator struct {
 	// GenerateTimeout caps each upstream call. Zero means no additional timeout
 	// beyond the one already carried by the incoming context.
 	GenerateTimeout time.Duration
+	// run and runStream are swapped out in tests. Both default to the real
+	// genkit implementations set by NewGenkitGenerator.
+	run       func(ctx context.Context, req GenerateRequest, apiKey string) (*ai.ModelResponse, error)
+	runStream func(ctx context.Context, req GenerateRequest, apiKey string, onChunk func(delta string) error) (*ai.ModelResponse, error)
 }
 
 // NewGenkitGenerator returns a GenkitGenerator that applies timeout to each
 // upstream Generate call. Pass zero to rely solely on the request context.
 func NewGenkitGenerator(timeout time.Duration) GenkitGenerator {
-	return GenkitGenerator{GenerateTimeout: timeout}
+	return GenkitGenerator{
+		GenerateTimeout: timeout,
+		run:             genkitRun,
+		runStream:       genkitRunStream,
+	}
 }
 
 // Generate implements Generator using Genkit's unified Generate API.
 func (g GenkitGenerator) Generate(ctx context.Context, req GenerateRequest, apiKey string) (GenerateResponse, error) {
-	plugin, err := pluginFor(req.ModelName, apiKey)
-	if err != nil {
-		return GenerateResponse{}, err
-	}
-
 	if g.GenerateTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, g.GenerateTimeout)
 		defer cancel()
 	}
 
-	genkitApp := genkit.Init(ctx, genkit.WithPlugins(plugin))
-
-	opts := append(generateOptions(req), toolOptions(genkitApp, req)...)
-	resp, err := genkit.Generate(ctx, genkitApp, opts...)
+	resp, err := g.run(ctx, req, apiKey)
 	if err != nil {
+		if errors.Is(err, ErrUnsupportedProvider) {
+			return GenerateResponse{}, err
+		}
 		return GenerateResponse{}, fmt.Errorf("generate %q: %w", req.ModelName, err)
 	}
 	out := GenerateResponse{
@@ -69,34 +72,18 @@ func (g GenkitGenerator) Generate(ctx context.Context, req GenerateRequest, apiK
 
 // GenerateStream implements Generator using Genkit's streaming Generate API.
 func (g GenkitGenerator) GenerateStream(ctx context.Context, req GenerateRequest, apiKey string, onChunk func(delta string) error) (GenerateResponse, error) {
-	plugin, err := pluginFor(req.ModelName, apiKey)
-	if err != nil {
-		return GenerateResponse{}, err
-	}
-
 	if g.GenerateTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, g.GenerateTimeout)
 		defer cancel()
 	}
 
-	genkitApp := genkit.Init(ctx, genkit.WithPlugins(plugin))
-
-	opts := append(generateOptions(req), toolOptions(genkitApp, req)...)
-	var final *ai.ModelResponse
-	for value, streamErr := range genkit.GenerateStream(ctx, genkitApp, opts...) {
-		if streamErr != nil {
-			return GenerateResponse{}, fmt.Errorf("generate %q: %w", req.ModelName, streamErr)
+	final, err := g.runStream(ctx, req, apiKey, onChunk)
+	if err != nil {
+		if errors.Is(err, ErrUnsupportedProvider) {
+			return GenerateResponse{}, err
 		}
-		if value.Done {
-			final = value.Response
-			break
-		}
-		if delta := value.Chunk.Text(); delta != "" {
-			if err := onChunk(delta); err != nil {
-				return GenerateResponse{}, err
-			}
-		}
+		return GenerateResponse{}, fmt.Errorf("generate %q: %w", req.ModelName, err)
 	}
 
 	out := GenerateResponse{Model: req.ModelName}
@@ -106,6 +93,47 @@ func (g GenkitGenerator) GenerateStream(ctx context.Context, req GenerateRequest
 		out.Usage = usageFrom(final.Usage)
 	}
 	return out, nil
+}
+
+// genkitRun is the real implementation of GenkitGenerator.run. It selects the
+// provider plugin, initialises a per-request Genkit instance, assembles options,
+// and calls genkit.Generate.
+func genkitRun(ctx context.Context, req GenerateRequest, apiKey string) (*ai.ModelResponse, error) {
+	plugin, err := pluginFor(req.ModelName, apiKey)
+	if err != nil {
+		return nil, err
+	}
+	genkitApp := genkit.Init(ctx, genkit.WithPlugins(plugin))
+	opts := append(generateOptions(req), toolOptions(genkitApp, req)...)
+	return genkit.Generate(ctx, genkitApp, opts...)
+}
+
+// genkitRunStream is the real implementation of GenkitGenerator.runStream. It
+// sets up the same per-request Genkit instance as genkitRun, then iterates the
+// stream, forwarding text deltas to onChunk and returning the final response.
+func genkitRunStream(ctx context.Context, req GenerateRequest, apiKey string, onChunk func(delta string) error) (*ai.ModelResponse, error) {
+	plugin, err := pluginFor(req.ModelName, apiKey)
+	if err != nil {
+		return nil, err
+	}
+	genkitApp := genkit.Init(ctx, genkit.WithPlugins(plugin))
+	opts := append(generateOptions(req), toolOptions(genkitApp, req)...)
+	var final *ai.ModelResponse
+	for value, streamErr := range genkit.GenerateStream(ctx, genkitApp, opts...) {
+		if streamErr != nil {
+			return nil, streamErr
+		}
+		if value.Done {
+			final = value.Response
+			break
+		}
+		if delta := value.Chunk.Text(); delta != "" {
+			if err := onChunk(delta); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return final, nil
 }
 
 // generateOptions builds the Genkit options shared by Generate and

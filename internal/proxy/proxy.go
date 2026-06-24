@@ -37,13 +37,14 @@ type Handler struct {
 	generator Generator
 	limiter   ratelimit.Limiter
 	rlCfg     HandlerRLConfig
+	allowlist *ModelAllowlist
 }
 
 // NewHandler returns a Handler that routes requests through generator.
 // Pass nil for lim and a zero HandlerRLConfig to disable per-request rate
-// limiting (the typical test setup).
-func NewHandler(generator Generator, lim ratelimit.Limiter, cfg HandlerRLConfig) *Handler {
-	return &Handler{generator: generator, limiter: lim, rlCfg: cfg}
+// limiting (the typical test setup). A nil allowlist permits every model.
+func NewHandler(generator Generator, lim ratelimit.Limiter, cfg HandlerRLConfig, allowlist *ModelAllowlist) *Handler {
+	return &Handler{generator: generator, limiter: lim, rlCfg: cfg, allowlist: allowlist}
 }
 
 // ServeHTTP decodes a GenerateRequest, extracts the bearer credential, routes
@@ -71,6 +72,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, httpReq *http.Requ
 	}
 	if err := req.Validate(); err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if !handler.allowModel(writer, req.ModelName) {
 		return
 	}
 
@@ -153,6 +158,17 @@ func writeJSON(writer http.ResponseWriter, status int, payload any) {
 	writer.Header().Set("Content-Type", "application/json")
 	writer.WriteHeader(status)
 	_ = json.NewEncoder(writer).Encode(payload)
+}
+
+// allowModel reports whether model may be invoked under the configured
+// allowlist. It writes a 403 response and returns false when the model is not
+// permitted; a nil allowlist permits every model.
+func (handler *Handler) allowModel(w http.ResponseWriter, model string) bool {
+	if handler.allowlist.Allows(model) {
+		return true
+	}
+	writeError(w, http.StatusForbidden, "model not permitted: "+model)
+	return false
 }
 
 // checkModelLimit enforces the per-model or per-provider rate limit configured

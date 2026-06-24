@@ -152,6 +152,28 @@ func TestLoadConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("model allowlist default empty", func(t *testing.T) {
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.modelAllowlist != nil {
+			t.Errorf("modelAllowlist: got %v, want nil", cfg.modelAllowlist)
+		}
+	})
+
+	t.Run("MODEL_ALLOWLIST parsed", func(t *testing.T) {
+		t.Setenv("MODEL_ALLOWLIST", "googleai/gemini-2.5-flash,openai")
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"googleai/gemini-2.5-flash", "openai"}
+		if !reflect.DeepEqual(cfg.modelAllowlist, want) {
+			t.Errorf("modelAllowlist = %v, want %v", cfg.modelAllowlist, want)
+		}
+	})
+
 	t.Run("RATE_LIMIT_MODELS parsed", func(t *testing.T) {
 		t.Setenv("RATE_LIMIT_MODELS", "googleai/gemini-2.5-flash:50,openai/gpt-4o:10")
 		cfg, err := loadConfig()

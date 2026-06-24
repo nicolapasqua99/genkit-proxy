@@ -208,7 +208,7 @@ func TestHandlerServeHTTP(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			fake := &fakeGenerator{resp: testCase.genResp, err: testCase.genErr}
-			handler := NewHandler(fake, nil, HandlerRLConfig{})
+			handler := NewHandler(fake, nil, HandlerRLConfig{}, nil)
 			req := httptest.NewRequest(testCase.method, "/v1/generate", strings.NewReader(testCase.body))
 			if testCase.auth != "" {
 				req.Header.Set("Authorization", testCase.auth)
@@ -244,6 +244,40 @@ func TestHandlerServeHTTP(t *testing.T) {
 	}
 }
 
+func TestHandlerModelAllowlist(t *testing.T) {
+	allow := NewModelAllowlist([]string{"googleai/gemini-2.5-flash", "openai"})
+	cases := []struct {
+		name       string
+		model      string
+		wantStatus int
+		wantCalled bool
+	}{
+		{"exact model allowed", "googleai/gemini-2.5-flash", http.StatusOK, true},
+		{"provider wildcard allowed", "openai/gpt-4o", http.StatusOK, true},
+		{"model not permitted", "googleai/gemini-2.5-pro", http.StatusForbidden, false},
+		{"provider not permitted", "anthropic/claude-3", http.StatusForbidden, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeGenerator{resp: GenerateResponse{Model: tc.model, Output: "hi"}}
+			handler := NewHandler(fake, nil, HandlerRLConfig{}, allow)
+			body := fmt.Sprintf(`{"modelName":%q,"userMessage":"hi"}`, tc.model)
+			req := httptest.NewRequest(http.MethodPost, "/v1/generate", strings.NewReader(body))
+			req.Header.Set("Authorization", "Bearer k")
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+			if called := fake.gotKey != ""; called != tc.wantCalled {
+				t.Errorf("generator called = %v, want %v", called, tc.wantCalled)
+			}
+		})
+	}
+}
+
 func TestHandlerWritesUsageToSlot(t *testing.T) {
 	want := &Usage{Input: 12, Output: 34, Total: 46}
 	fake := &fakeGenerator{resp: GenerateResponse{
@@ -251,7 +285,7 @@ func TestHandlerWritesUsageToSlot(t *testing.T) {
 		Output: "hello",
 		Usage:  want,
 	}}
-	handler := NewHandler(fake, nil, HandlerRLConfig{})
+	handler := NewHandler(fake, nil, HandlerRLConfig{}, nil)
 
 	slot := &modelSlot{}
 	ctx := context.WithValue(context.Background(), modelKey, slot)

@@ -76,6 +76,7 @@ credentials are **not** configured here — they arrive per request in the
 | `GENKIT_CACHE_ENABLED` | `true` | Reuse Genkit instances across requests, keyed by provider + API key, avoiding a `genkit.Init` (and provider client/connection-pool build) per request. Set `false` to initialise a fresh instance per request. |
 | `GENKIT_CACHE_TTL` | `10m` | Idle expiry for a cached instance. `0` disables time-based eviction. |
 | `GENKIT_CACHE_MAX_SIZE` | `1024` | Max cached instances (least-recently-used evicted first). `0` disables the size cap. |
+| `MODEL_ALLOWLIST` | _(unset)_ | Comma-separated list of permitted models, each a full model name (`googleai/gemini-2.5-flash`) or a bare provider (`openai`). A request for any other model is rejected with `403`. Unset allows every model. |
 
 > **Credential residency:** caching keeps a tenant's provider credential
 > resident in memory inside the cached instance until the entry is evicted. The

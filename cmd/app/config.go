@@ -46,6 +46,9 @@ type config struct {
 	cacheEnabled bool          // GENKIT_CACHE_ENABLED, default true
 	cacheTTL     time.Duration // GENKIT_CACHE_TTL, default 10m
 	cacheMaxSize int           // GENKIT_CACHE_MAX_SIZE, default 1024
+
+	// Model allowlist
+	modelAllowlist []string // from MODEL_ALLOWLIST=model-or-provider,...; empty allows all
 }
 
 // loadConfig reads server and generator settings from the environment. Missing
@@ -154,6 +157,10 @@ func loadConfig() (config, error) {
 			return config{}, fmt.Errorf("GENKIT_CACHE_ENABLED: %w", err)
 		}
 		cfg.cacheEnabled = enabled
+	}
+
+	if raw := os.Getenv("MODEL_ALLOWLIST"); raw != "" {
+		cfg.modelAllowlist = strings.Split(raw, ",")
 	}
 
 	return cfg, nil

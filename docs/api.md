@@ -172,7 +172,7 @@ event (see [`/v1/generate/stream`](#post-v1generatestream)).
 | `200` | Success. |
 | `400` | Invalid request (bad JSON, unknown field, neither `userMessage` nor `messages`, an out-of-range tuning field — temperature / maxOutputTokens / topP / topK — an invalid `responseFormat` / `outputSchema`, a malformed `messages` / `parts` / `media` entry, a missing/duplicate `tools` name, or an invalid `toolChoice`) or unsupported provider. |
 | `401` | Missing/malformed bearer token, or upstream rejected the credentials. |
-| `403` | Upstream provider denied access. |
+| `403` | Upstream provider denied access, or the requested model is not permitted by the configured `MODEL_ALLOWLIST`. |
 | `404` | Requested model not found. |
 | `405` | Method other than `POST`. |
 | `429` | Upstream rate limit exceeded. |

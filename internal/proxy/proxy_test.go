@@ -208,7 +208,7 @@ func TestHandlerServeHTTP(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			fake := &fakeGenerator{resp: testCase.genResp, err: testCase.genErr}
-			handler := NewHandler(fake)
+			handler := NewHandler(fake, nil, HandlerRLConfig{})
 			req := httptest.NewRequest(testCase.method, "/v1/generate", strings.NewReader(testCase.body))
 			if testCase.auth != "" {
 				req.Header.Set("Authorization", testCase.auth)
@@ -251,7 +251,7 @@ func TestHandlerWritesUsageToSlot(t *testing.T) {
 		Output: "hello",
 		Usage:  want,
 	}}
-	handler := NewHandler(fake)
+	handler := NewHandler(fake, nil, HandlerRLConfig{})
 
 	slot := &modelSlot{}
 	ctx := context.WithValue(context.Background(), modelKey, slot)

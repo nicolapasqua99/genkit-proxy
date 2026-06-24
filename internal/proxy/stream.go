@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // ServeStream handles POST /v1/generate/stream, emitting the generation as
@@ -35,6 +39,31 @@ func (handler *Handler) ServeStream(writer http.ResponseWriter, httpReq *http.Re
 	}
 
 	ctx := httpReq.Context()
+
+	if !handler.checkModelLimit(writer, ctx, apiKey, req.ModelName) {
+		return
+	}
+
+	if handler.limiter != nil && handler.rlCfg.StreamLimit > 0 {
+		spanCtx, span := otel.Tracer("proxy").Start(ctx, "ratelimit.check")
+		key := rateLimitKey(apiKey, "stream")
+		allowed, retryAfter, rlErr := handler.limiter.Allow(spanCtx, key, handler.rlCfg.StreamLimit)
+		span.SetAttributes(
+			attribute.String("rl.layer", "stream"),
+			attribute.Bool("rl.allowed", allowed),
+			attribute.Int("rl.retry_after_sec", int(retryAfter.Seconds())),
+		)
+		span.End()
+		if rlErr != nil {
+			slog.WarnContext(ctx, "rate limiter error", "err", rlErr)
+			// fail open: continue to generation on backend error
+		} else if !allowed {
+			writer.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+			writeError(writer, http.StatusTooManyRequests, "rate limit exceeded")
+			return
+		}
+	}
+
 	if slot := modelSlotFromContext(ctx); slot != nil {
 		slot.name = req.ModelName
 	}

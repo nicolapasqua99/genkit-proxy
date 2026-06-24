@@ -90,7 +90,7 @@ func TestHandlerServeStream(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			fake := &fakeGenerator{resp: testCase.genResp, err: testCase.genErr, streamDeltas: testCase.deltas}
-			handler := NewHandler(fake)
+			handler := NewHandler(fake, nil, HandlerRLConfig{})
 			req := httptest.NewRequest(http.MethodPost, "/v1/generate/stream", strings.NewReader(testCase.body))
 			if testCase.auth != "" {
 				req.Header.Set("Authorization", testCase.auth)
@@ -133,7 +133,7 @@ func TestStatusWriterUnwrapFlushes(t *testing.T) {
 func TestStreamGeneratorErrorIsSanitized(t *testing.T) {
 	// A pre-stream error must not leak the raw provider message to the client.
 	fake := &fakeGenerator{err: errors.New("internal detail leak")}
-	handler := NewHandler(fake)
+	handler := NewHandler(fake, nil, HandlerRLConfig{})
 	req := httptest.NewRequest(http.MethodPost, "/v1/generate/stream",
 		strings.NewReader(`{"modelName":"googleai/gemini-2.5-flash","userMessage":"hi"}`))
 	req.Header.Set("Authorization", "Bearer k")

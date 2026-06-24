@@ -1,23 +1,49 @@
 package proxy
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/nicolapasqua99/genkit-proxy/internal/ratelimit"
 )
 
 // maxRequestBytes caps the size of a decoded request body.
 const maxRequestBytes = 1 << 20 // 1 MiB
 
+// HandlerRLConfig configures per-request rate limiting inside the handler.
+// It is distinct from the global middleware RateLimit, which runs before body
+// parsing and enforces a blanket per-token cap.
+type HandlerRLConfig struct {
+	// StreamLimit is the per-token requests-per-window cap for stream requests.
+	// Zero disables stream-specific limiting.
+	StreamLimit int
+	// LimitForModel returns the per-window limit and key tag for model.
+	// The tag distinguishes model from provider keys, e.g. "model:foo/bar"
+	// or "provider:foo". A zero limit disables per-model/provider checking.
+	LimitForModel func(model string) (limit int, keyTag string)
+}
+
 // Handler serves generation requests over HTTP.
 type Handler struct {
 	generator Generator
+	limiter   ratelimit.Limiter
+	rlCfg     HandlerRLConfig
 }
 
 // NewHandler returns a Handler that routes requests through generator.
-func NewHandler(generator Generator) *Handler {
-	return &Handler{generator: generator}
+// Pass nil for lim and a zero HandlerRLConfig to disable per-request rate
+// limiting (the typical test setup).
+func NewHandler(generator Generator, lim ratelimit.Limiter, cfg HandlerRLConfig) *Handler {
+	return &Handler{generator: generator, limiter: lim, rlCfg: cfg}
 }
 
 // ServeHTTP decodes a GenerateRequest, extracts the bearer credential, routes
@@ -45,6 +71,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, httpReq *http.Requ
 	}
 	if err := req.Validate(); err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if !handler.checkModelLimit(writer, httpReq.Context(), apiKey, req.ModelName) {
 		return
 	}
 
@@ -123,4 +153,59 @@ func writeJSON(writer http.ResponseWriter, status int, payload any) {
 	writer.Header().Set("Content-Type", "application/json")
 	writer.WriteHeader(status)
 	_ = json.NewEncoder(writer).Encode(payload)
+}
+
+// checkModelLimit enforces the per-model or per-provider rate limit configured
+// in HandlerRLConfig. It writes a 429 response and returns false when the limit
+// is exceeded; returns true (and writes nothing) in all other cases, including
+// when no limit is configured or the limiter is nil.
+func (handler *Handler) checkModelLimit(w http.ResponseWriter, ctx context.Context, apiKey, modelName string) bool {
+	if handler.limiter == nil || handler.rlCfg.LimitForModel == nil {
+		return true
+	}
+	limit, keyTag := handler.rlCfg.LimitForModel(modelName)
+	if limit <= 0 {
+		return true
+	}
+	spanCtx, span := otel.Tracer("proxy").Start(ctx, "ratelimit.check")
+	key := rateLimitKey(apiKey, keyTag)
+	allowed, retryAfter, rlErr := handler.limiter.Allow(spanCtx, key, limit)
+	layer := "provider"
+	if strings.HasPrefix(keyTag, "model:") {
+		layer = "model"
+	}
+	span.SetAttributes(
+		attribute.String("rl.layer", layer),
+		attribute.Bool("rl.allowed", allowed),
+		attribute.Int("rl.retry_after_sec", int(retryAfter.Seconds())),
+	)
+	span.End()
+	if rlErr != nil {
+		slog.WarnContext(ctx, "rate limiter error", "err", rlErr)
+		return true // fail open on backend error
+	}
+	if !allowed {
+		w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+		return false
+	}
+	return true
+}
+
+// rateLimitKey returns the hashed key used by the limiter for a given bearer
+// token and optional namespace tag (e.g. "model:googleai/gemini-2.5-flash").
+// The tag is included in the hash input so each namespace is independent.
+func rateLimitKey(token, tag string) string {
+	if tag == "" {
+		return sha256hex(token)
+	}
+	return sha256hex(token + ":" + tag)
+}
+
+// sha256hex returns the hex-encoded SHA-256 digest of s. It is used to derive
+// opaque rate-limit keys from bearer tokens so raw credentials are never stored
+// in memory buckets or Redis.
+func sha256hex(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
 }

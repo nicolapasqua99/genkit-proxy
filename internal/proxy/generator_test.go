@@ -1,12 +1,16 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/firebase/genkit/go/ai"
+	"github.com/firebase/genkit/go/core"
 )
 
 func TestOutputAndData(t *testing.T) {
@@ -218,4 +222,283 @@ func TestGenerateResponseUsageMarshalling(t *testing.T) {
 			t.Errorf("response %s should contain %s", out, want)
 		}
 	})
+}
+
+// makeModelResponse builds a minimal *ai.ModelResponse with a single text
+// candidate for use in seam tests.
+func makeModelResponse(text string, finishReason ai.FinishReason, usage *ai.GenerationUsage) *ai.ModelResponse {
+	resp := &ai.ModelResponse{
+		FinishReason: finishReason,
+		Usage:        usage,
+	}
+	if text != "" {
+		resp.Message = ai.NewTextMessage(ai.RoleModel, text)
+	}
+	return resp
+}
+
+func TestGenkitGeneratorGenerate(t *testing.T) {
+	const model = "googleai/gemini-2.5-flash"
+	stdUsage := &ai.GenerationUsage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}
+
+	cases := []struct {
+		name      string
+		req       GenerateRequest
+		timeout   time.Duration
+		runResult *ai.ModelResponse
+		runErr    error
+		wantErr   bool
+		// wantErrIs is checked with errors.Is when set.
+		wantErrIs error
+		// wantErrClassify is checked when set.
+		wantErrClassify errCategory
+		wantResp        GenerateResponse
+	}{
+		{
+			name:      "unsupported provider not wrapped",
+			req:       GenerateRequest{ModelName: model, UserMessage: "hi"},
+			runErr:    ErrUnsupportedProvider,
+			wantErr:   true,
+			wantErrIs: ErrUnsupportedProvider,
+		},
+		{
+			name:            "upstream auth error wrapped and classified",
+			req:             GenerateRequest{ModelName: model, UserMessage: "hi"},
+			runErr:          core.NewError(core.UNAUTHENTICATED, "bad key"),
+			wantErr:         true,
+			wantErrClassify: categoryUnauthenticated,
+		},
+		{
+			name:            "timeout applied to context",
+			req:             GenerateRequest{ModelName: model, UserMessage: "hi"},
+			timeout:         1 * time.Millisecond,
+			runErr:          nil, // fake blocks on ctx.Done
+			wantErr:         true,
+			wantErrClassify: categoryTimeout,
+		},
+		{
+			name:      "success plain text",
+			req:       GenerateRequest{ModelName: model, UserMessage: "hi"},
+			runResult: makeModelResponse("hello", ai.FinishReasonStop, stdUsage),
+			wantResp: GenerateResponse{
+				Model:        model,
+				Output:       "hello",
+				FinishReason: string(ai.FinishReasonStop),
+				Usage:        &Usage{Input: 10, Output: 5, Total: 15},
+			},
+		},
+		{
+			name:      "success JSON format routes to data field",
+			req:       GenerateRequest{ModelName: model, UserMessage: "hi", ResponseFormat: "json"},
+			runResult: makeModelResponse(`{"x":1}`, ai.FinishReasonStop, nil),
+			wantResp: GenerateResponse{
+				Model:        model,
+				Data:         json.RawMessage(`{"x":1}`),
+				FinishReason: string(ai.FinishReasonStop),
+			},
+		},
+		{
+			name:      "nil usage omitted from response",
+			req:       GenerateRequest{ModelName: model, UserMessage: "hi"},
+			runResult: makeModelResponse("ok", ai.FinishReasonStop, nil),
+			wantResp: GenerateResponse{
+				Model:        model,
+				Output:       "ok",
+				FinishReason: string(ai.FinishReasonStop),
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			blockCh := make(chan struct{})
+			g := GenkitGenerator{
+				GenerateTimeout: tc.timeout,
+				run: func(ctx context.Context, _ GenerateRequest, _ string) (*ai.ModelResponse, error) {
+					if tc.timeout > 0 {
+						// Block until the context deadline fires.
+						select {
+						case <-ctx.Done():
+							return nil, ctx.Err()
+						case <-blockCh:
+						}
+					}
+					return tc.runResult, tc.runErr
+				},
+			}
+
+			resp, err := g.Generate(context.Background(), tc.req, "test-key")
+
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("Generate() error = nil, want error")
+				}
+				if tc.wantErrIs != nil && !errors.Is(err, tc.wantErrIs) {
+					t.Errorf("errors.Is(%v, %v) = false, want true", err, tc.wantErrIs)
+				}
+				if tc.wantErrClassify != 0 && classify(err) != tc.wantErrClassify {
+					t.Errorf("classify(err) = %v, want %v", classify(err), tc.wantErrClassify)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Generate() unexpected error: %v", err)
+			}
+			if !reflect.DeepEqual(resp, tc.wantResp) {
+				t.Errorf("Generate() = %+v, want %+v", resp, tc.wantResp)
+			}
+		})
+	}
+}
+
+func TestGenkitGeneratorGenerateStream(t *testing.T) {
+	const model = "googleai/gemini-2.5-flash"
+	stdUsage := &ai.GenerationUsage{InputTokens: 8, OutputTokens: 4, TotalTokens: 12}
+
+	cases := []struct {
+		name string
+		req  GenerateRequest
+		// runFn drives the fake runStream. Receives the onChunk callback.
+		runFn   func(ctx context.Context, onChunk func(string) error) (*ai.ModelResponse, error)
+		timeout time.Duration
+		wantErr bool
+		// wantErrIs is checked with errors.Is when set.
+		wantErrIs error
+		// wantErrClassify is checked when set.
+		wantErrClassify errCategory
+		wantDeltas      []string
+		wantResp        GenerateResponse
+	}{
+		{
+			name: "unsupported provider not wrapped",
+			req:  GenerateRequest{ModelName: model, UserMessage: "hi"},
+			runFn: func(_ context.Context, _ func(string) error) (*ai.ModelResponse, error) {
+				return nil, ErrUnsupportedProvider
+			},
+			wantErr:   true,
+			wantErrIs: ErrUnsupportedProvider,
+		},
+		{
+			name: "upstream error wrapped and classified",
+			req:  GenerateRequest{ModelName: model, UserMessage: "hi"},
+			runFn: func(_ context.Context, _ func(string) error) (*ai.ModelResponse, error) {
+				return nil, core.NewError(core.PERMISSION_DENIED, "no access")
+			},
+			wantErr:         true,
+			wantErrClassify: categoryPermissionDenied,
+		},
+		{
+			name:    "timeout applied to context",
+			req:     GenerateRequest{ModelName: model, UserMessage: "hi"},
+			timeout: 1 * time.Millisecond,
+			runFn: func(ctx context.Context, _ func(string) error) (*ai.ModelResponse, error) {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(5 * time.Second):
+					return nil, nil
+				}
+			},
+			wantErr:         true,
+			wantErrClassify: categoryTimeout,
+		},
+		{
+			name: "multiple deltas delivered in order",
+			req:  GenerateRequest{ModelName: model, UserMessage: "hi"},
+			runFn: func(_ context.Context, onChunk func(string) error) (*ai.ModelResponse, error) {
+				for _, d := range []string{"hello", " ", "world"} {
+					if err := onChunk(d); err != nil {
+						return nil, err
+					}
+				}
+				return makeModelResponse("", ai.FinishReasonStop, stdUsage), nil
+			},
+			wantDeltas: []string{"hello", " ", "world"},
+			wantResp: GenerateResponse{
+				Model:        model,
+				FinishReason: string(ai.FinishReasonStop),
+				Usage:        &Usage{Input: 8, Output: 4, Total: 12},
+			},
+		},
+		{
+			name: "onChunk error aborts stream",
+			req:  GenerateRequest{ModelName: model, UserMessage: "hi"},
+			runFn: func(_ context.Context, onChunk func(string) error) (*ai.ModelResponse, error) {
+				if err := onChunk("oops"); err != nil {
+					return nil, err
+				}
+				return nil, nil
+			},
+			// The test's onChunk always returns an error; the error propagates back.
+			wantErr: true,
+		},
+		{
+			name: "nil final response gives zero-value fields",
+			req:  GenerateRequest{ModelName: model, UserMessage: "hi"},
+			runFn: func(_ context.Context, _ func(string) error) (*ai.ModelResponse, error) {
+				return nil, nil
+			},
+			wantResp: GenerateResponse{Model: model},
+		},
+		{
+			name: "final response fields all mapped",
+			req:  GenerateRequest{ModelName: model, UserMessage: "hi"},
+			runFn: func(_ context.Context, onChunk func(string) error) (*ai.ModelResponse, error) {
+				_ = onChunk("text")
+				return makeModelResponse("", ai.FinishReasonLength, stdUsage), nil
+			},
+			wantDeltas: []string{"text"},
+			wantResp: GenerateResponse{
+				Model:        model,
+				FinishReason: string(ai.FinishReasonLength),
+				Usage:        &Usage{Input: 8, Output: 4, Total: 12},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			chunkErr := errors.New("chunk write error")
+			var gotDeltas []string
+
+			onChunk := func(delta string) error {
+				if tc.name == "onChunk error aborts stream" {
+					return chunkErr
+				}
+				gotDeltas = append(gotDeltas, delta)
+				return nil
+			}
+
+			g := GenkitGenerator{
+				GenerateTimeout: tc.timeout,
+				runStream: func(ctx context.Context, _ GenerateRequest, _ string, cb func(string) error) (*ai.ModelResponse, error) {
+					return tc.runFn(ctx, cb)
+				},
+			}
+
+			resp, err := g.GenerateStream(context.Background(), tc.req, "test-key", onChunk)
+
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("GenerateStream() error = nil, want error")
+				}
+				if tc.wantErrIs != nil && !errors.Is(err, tc.wantErrIs) {
+					t.Errorf("errors.Is(%v, %v) = false, want true", err, tc.wantErrIs)
+				}
+				if tc.wantErrClassify != 0 && classify(err) != tc.wantErrClassify {
+					t.Errorf("classify(err) = %v, want %v", classify(err), tc.wantErrClassify)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GenerateStream() unexpected error: %v", err)
+			}
+			if !reflect.DeepEqual(gotDeltas, tc.wantDeltas) {
+				t.Errorf("deltas = %v, want %v", gotDeltas, tc.wantDeltas)
+			}
+			if !reflect.DeepEqual(resp, tc.wantResp) {
+				t.Errorf("GenerateStream() = %+v, want %+v", resp, tc.wantResp)
+			}
+		})
+	}
 }

@@ -37,6 +37,10 @@ type config struct {
 
 	// CORS
 	corsAllowOrigins string
+
+	// Retry
+	retryMaxAttempts int           // RETRY_MAX_ATTEMPTS, default 3
+	retryBaseBackoff time.Duration // RETRY_BASE_BACKOFF, default 100ms
 }
 
 // loadConfig reads server and generator settings from the environment. Missing
@@ -54,6 +58,8 @@ func loadConfig() (config, error) {
 		rateLimitRPS:      60,
 		rateLimitWindow:   time.Minute,
 		corsAllowOrigins:  "*",
+		retryMaxAttempts:  3,
+		retryBaseBackoff:  100 * time.Millisecond,
 	}
 
 	if v := os.Getenv("PORT"); v != "" {
@@ -70,6 +76,7 @@ func loadConfig() (config, error) {
 		{"IDLE_TIMEOUT", &cfg.idleTimeout},
 		{"GENERATE_TIMEOUT", &cfg.generateTimeout},
 		{"RATE_LIMIT_WINDOW", &cfg.rateLimitWindow},
+		{"RETRY_BASE_BACKOFF", &cfg.retryBaseBackoff},
 	}
 	for _, d := range durations {
 		v := os.Getenv(d.env)
@@ -93,6 +100,7 @@ func loadConfig() (config, error) {
 		{"RATE_LIMIT_OPENAI_RPS", &cfg.rateLimitOpenAIRPS},
 		{"RATE_LIMIT_ANTHROPIC_RPS", &cfg.rateLimitAnthropicRPS},
 		{"RATE_LIMIT_VERTEXAI_RPS", &cfg.rateLimitVertexAIRPS},
+		{"RETRY_MAX_ATTEMPTS", &cfg.retryMaxAttempts},
 	}
 	for _, i := range integers {
 		v := os.Getenv(i.env)

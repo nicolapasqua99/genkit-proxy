@@ -76,7 +76,11 @@ func main() {
 	defer lim.Close() //nolint:errcheck
 
 	handler := proxy.NewHandler(
-		proxy.NewGenkitGenerator(cfg.generateTimeout),
+		proxy.NewRetryingGenerator(
+			proxy.NewGenkitGenerator(cfg.generateTimeout),
+			cfg.retryMaxAttempts,
+			cfg.retryBaseBackoff,
+		),
 		lim,
 		cfg.handlerRateLimitConfig(),
 	)

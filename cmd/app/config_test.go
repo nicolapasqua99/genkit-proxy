@@ -82,6 +82,34 @@ func TestLoadConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("retry defaults", func(t *testing.T) {
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.retryMaxAttempts != 3 {
+			t.Errorf("retryMaxAttempts: got %d, want 3", cfg.retryMaxAttempts)
+		}
+		if cfg.retryBaseBackoff != 100*time.Millisecond {
+			t.Errorf("retryBaseBackoff: got %v, want 100ms", cfg.retryBaseBackoff)
+		}
+	})
+
+	t.Run("retry env vars parsed", func(t *testing.T) {
+		t.Setenv("RETRY_MAX_ATTEMPTS", "5")
+		t.Setenv("RETRY_BASE_BACKOFF", "200ms")
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.retryMaxAttempts != 5 {
+			t.Errorf("retryMaxAttempts: got %d, want 5", cfg.retryMaxAttempts)
+		}
+		if cfg.retryBaseBackoff != 200*time.Millisecond {
+			t.Errorf("retryBaseBackoff: got %v, want 200ms", cfg.retryBaseBackoff)
+		}
+	})
+
 	t.Run("RATE_LIMIT_MODELS parsed", func(t *testing.T) {
 		t.Setenv("RATE_LIMIT_MODELS", "googleai/gemini-2.5-flash:50,openai/gpt-4o:10")
 		cfg, err := loadConfig()

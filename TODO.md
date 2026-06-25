@@ -67,6 +67,15 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   deployed.
 - [x] **Env-configurable server timeouts** — `cmd/app/main.go` hardcodes the Read / Write /
   Idle timeouts; make them (and the per-request timeout above) env-driven, and validate `PORT`.
+- [ ] **Platform-agnostic container deployment** — the binary is already a portable container
+  (root `Dockerfile`, reads `$PORT`, drains on `SIGTERM`), but the release path is Cloud-Run-only:
+  `.github/workflows/release.yml` builds via Cloud Build (`gcloud run deploy --source .`) and
+  deploys solely to Cloud Run, publishing no image to a neutral registry. Make it deployable on any
+  container platform: publish the image to GHCR/Docker Hub on tag, and add platform-neutral run
+  artifacts (Kubernetes `Deployment`/`Service` manifests or a Helm chart, a `docker-compose`
+  example) and generic deployment docs, so Cloud Run is one target among many. The only inherently
+  GCP-coupled piece is the optional `vertexai` provider (ADC + `GOOGLE_CLOUD_*`); keep it opt-in and
+  document that the API-key providers (`googleai`/`openai`/`anthropic`) need no cloud platform.
 
 ## Tier 2 — Feature surface
 

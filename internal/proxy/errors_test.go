@@ -9,6 +9,8 @@ import (
 	"github.com/firebase/genkit/go/core"
 	"github.com/openai/openai-go"
 	"google.golang.org/genai"
+
+	"github.com/nicolapasqua99/genkit-proxy/internal/auth"
 )
 
 func TestClassify(t *testing.T) {
@@ -38,6 +40,9 @@ func TestClassify(t *testing.T) {
 		{"openai 429", &openai.Error{StatusCode: 429}, categoryRateLimit},
 		{"openai 500", &openai.Error{StatusCode: 500}, categoryUpstream},
 		{"unknown error", errors.New("something unexpected"), categoryUpstream},
+		{"auth unknown tenant", auth.ErrUnknownTenant, categoryUnauthenticated},
+		{"auth no provider secret", fmt.Errorf("wrap: %w", auth.ErrNoProviderSecret), categoryPermissionDenied},
+		{"auth secret unavailable", fmt.Errorf("wrap: %w", auth.ErrSecretUnavailable), categoryInternal},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

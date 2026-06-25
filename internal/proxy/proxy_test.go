@@ -14,6 +14,8 @@ import (
 	"github.com/firebase/genkit/go/core"
 	"github.com/openai/openai-go"
 	"google.golang.org/genai"
+
+	"github.com/nicolapasqua99/genkit-proxy/internal/auth"
 )
 
 // fakeGenerator records what it was called with and returns canned results.
@@ -338,6 +340,9 @@ func TestStatusFor(t *testing.T) {
 		{"openai error 403", openaiApiErrForbidden, http.StatusForbidden},
 		{"openai error 429", openaiApiErr429, http.StatusTooManyRequests},
 		{"unknown error", errors.New("boom"), http.StatusBadGateway},
+		{"auth unknown tenant", auth.ErrUnknownTenant, http.StatusUnauthorized},
+		{"auth no provider secret", auth.ErrNoProviderSecret, http.StatusForbidden},
+		{"auth secret unavailable", auth.ErrSecretUnavailable, http.StatusInternalServerError},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -401,6 +406,24 @@ func TestSafeMessage(t *testing.T) {
 			name:         "unknown upstream uses safe message",
 			err:          fmt.Errorf("internal detail=%s", secret),
 			wantContains: "upstream provider error",
+			wantAbsent:   secret,
+		},
+		{
+			name:         "unknown tenant uses gateway message",
+			err:          fmt.Errorf("tenant=%s: %w", secret, auth.ErrUnknownTenant),
+			wantContains: "gateway authentication failed",
+			wantAbsent:   secret,
+		},
+		{
+			name:         "no provider secret uses safe message",
+			err:          fmt.Errorf("ref=%s: %w", secret, auth.ErrNoProviderSecret),
+			wantContains: "no provider credential",
+			wantAbsent:   secret,
+		},
+		{
+			name:         "secret unavailable uses safe message",
+			err:          fmt.Errorf("ref=%s: %w", secret, auth.ErrSecretUnavailable),
+			wantContains: "internal credential resolution error",
 			wantAbsent:   secret,
 		},
 	}

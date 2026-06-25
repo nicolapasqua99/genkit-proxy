@@ -49,6 +49,11 @@ type config struct {
 
 	// Model allowlist
 	modelAllowlist []string // from MODEL_ALLOWLIST=model-or-provider,...; empty allows all
+
+	// Decoupled gateway auth
+	gatewayAuthEnabled bool   // GATEWAY_AUTH_ENABLED, default false (raw pass-through)
+	gatewayAuthTenants string // GATEWAY_AUTH_TENANTS, JSON tenant table
+	gatewaySecrets     string // GATEWAY_SECRETS, "ref=value,..." for the static source
 }
 
 // loadConfig reads server and generator settings from the environment. Missing
@@ -136,6 +141,8 @@ func loadConfig() (config, error) {
 		{"REDIS_SENTINEL_ADDRS", &cfg.redisSentinelAddrs},
 		{"REDIS_MASTER_NAME", &cfg.redisMasterName},
 		{"CORS_ALLOW_ORIGINS", &cfg.corsAllowOrigins},
+		{"GATEWAY_AUTH_TENANTS", &cfg.gatewayAuthTenants},
+		{"GATEWAY_SECRETS", &cfg.gatewaySecrets},
 	}
 	for _, s := range strings_ {
 		if v := os.Getenv(s.env); v != "" {
@@ -161,6 +168,14 @@ func loadConfig() (config, error) {
 
 	if raw := os.Getenv("MODEL_ALLOWLIST"); raw != "" {
 		cfg.modelAllowlist = strings.Split(raw, ",")
+	}
+
+	if v := os.Getenv("GATEWAY_AUTH_ENABLED"); v != "" {
+		enabled, err := strconv.ParseBool(v)
+		if err != nil {
+			return config{}, fmt.Errorf("GATEWAY_AUTH_ENABLED: %w", err)
+		}
+		cfg.gatewayAuthEnabled = enabled
 	}
 
 	return cfg, nil

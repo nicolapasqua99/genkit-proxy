@@ -24,6 +24,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/nicolapasqua99/genkit-proxy/internal/auth"
 	"github.com/nicolapasqua99/genkit-proxy/internal/proxy"
 	"github.com/nicolapasqua99/genkit-proxy/internal/ratelimit"
 )
@@ -81,12 +82,22 @@ func main() {
 		defer cache.Close()
 	}
 
+	generator := proxy.NewRetryingGenerator(
+		proxy.NewGenkitGenerator(cfg.generateTimeout, cache),
+		cfg.retryMaxAttempts,
+		cfg.retryBaseBackoff,
+	)
+	if cfg.gatewayAuthEnabled {
+		resolver, err := buildCredentialResolver(cfg)
+		if err != nil {
+			slog.Error("gateway auth config error", "err", err)
+			os.Exit(1)
+		}
+		generator = proxy.NewResolvingGenerator(generator, resolver)
+	}
+
 	handler := proxy.NewHandler(
-		proxy.NewRetryingGenerator(
-			proxy.NewGenkitGenerator(cfg.generateTimeout, cache),
-			cfg.retryMaxAttempts,
-			cfg.retryBaseBackoff,
-		),
+		generator,
 		lim,
 		cfg.handlerRateLimitConfig(),
 		proxy.NewModelAllowlist(cfg.modelAllowlist),
@@ -150,4 +161,19 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Warn("shutdown error", "err", err)
 	}
+}
+
+// buildCredentialResolver constructs the decoupled gateway-auth resolver from
+// the static secret source and tenant table in cfg. It is built only when
+// GATEWAY_AUTH_ENABLED is set, and any malformed configuration fails startup.
+func buildCredentialResolver(cfg config) (proxy.CredentialResolver, error) {
+	source, err := auth.ParseStaticSecrets(cfg.gatewaySecrets)
+	if err != nil {
+		return nil, err
+	}
+	resolver, err := auth.NewResolver(cfg.gatewayAuthTenants, source)
+	if err != nil {
+		return nil, err
+	}
+	return proxy.NewCredentialResolver(resolver), nil
 }

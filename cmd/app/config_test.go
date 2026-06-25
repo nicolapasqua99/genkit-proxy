@@ -188,6 +188,42 @@ func TestLoadConfig(t *testing.T) {
 			t.Errorf("rateLimitByModel = %v, want %v", cfg.rateLimitByModel, want)
 		}
 	})
+
+	t.Run("gateway auth defaults to disabled", func(t *testing.T) {
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.gatewayAuthEnabled {
+			t.Error("gatewayAuthEnabled: got true, want false")
+		}
+	})
+
+	t.Run("gateway auth overrides", func(t *testing.T) {
+		t.Setenv("GATEWAY_AUTH_ENABLED", "true")
+		t.Setenv("GATEWAY_AUTH_TENANTS", `{"abc":{"tenant":"acme","providers":{"openai":"ref"}}}`)
+		t.Setenv("GATEWAY_SECRETS", "ref=sk-xx")
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !cfg.gatewayAuthEnabled {
+			t.Error("gatewayAuthEnabled: got false, want true")
+		}
+		if cfg.gatewaySecrets != "ref=sk-xx" {
+			t.Errorf("gatewaySecrets = %q, want %q", cfg.gatewaySecrets, "ref=sk-xx")
+		}
+		if cfg.gatewayAuthTenants == "" {
+			t.Error("gatewayAuthTenants: got empty, want JSON")
+		}
+	})
+
+	t.Run("invalid GATEWAY_AUTH_ENABLED returns error", func(t *testing.T) {
+		t.Setenv("GATEWAY_AUTH_ENABLED", "notabool")
+		if _, err := loadConfig(); err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
 }
 
 func TestParseModelLimits(t *testing.T) {

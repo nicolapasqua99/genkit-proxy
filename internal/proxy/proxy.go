@@ -140,6 +140,8 @@ func statusFor(err error) int {
 		return http.StatusGatewayTimeout
 	case categoryNotFound:
 		return http.StatusNotFound
+	case categoryInternal:
+		return http.StatusInternalServerError
 	default:
 		return http.StatusBadGateway
 	}

@@ -133,8 +133,19 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   by `internal/proxy/policy_test.go` and handler tests. *Per-tenant* policy remains future work: it
   needs tenant identity, which depends on the decoupled gateway-auth item below (the bearer is
   currently an opaque provider key, so there is no tenant to key a policy on).
-- [ ] **Decoupled gateway auth** — authenticate the tenant with its own key and resolve the
-  provider key from Secret Manager, instead of the current raw pass-through.
+- [x] **Decoupled gateway auth** — opt-in (`GATEWAY_AUTH_ENABLED`, default off, preserving raw
+  pass-through). When enabled, the caller presents its own gateway key; `internal/auth`
+  authenticates it against a tenant table (`GATEWAY_AUTH_TENANTS`, keyed by the SHA-256 hash of
+  each gateway key so raw keys never sit in env) and resolves the provider key through a pluggable
+  `SecretSource`. Credential resolution is wired as a `ResolvingGenerator` that wraps the existing
+  generator chain (so the handler, rate limiting, and `GenkitCache` are untouched and now keyed on
+  the resolved provider key); resolution failures classify as `401` (unknown tenant) / `403` (no
+  provider secret) / `500` (secret store error). `vertexai` callers are still authenticated but
+  forward no key (ADC). Covered by `internal/auth/*_test.go` and `internal/proxy/credentials_test.go`.
+  *Follow-up:* the shipped `SecretSource` is the in-memory `StaticSecretSource` (fed by
+  `GATEWAY_SECRETS`); a Google Secret Manager source can replace it behind the same seam without
+  touching the tenant table. *Per-tenant* policy/rate-limiting keyed on the now-available tenant id
+  remains future work.
 - [x] **Rate limiting, CORS** — three-layer fixed-window rate limiting (global per-token,
   per-model/provider, per-stream) backed by in-memory or Redis (Sentinel / Cluster); CORS
   middleware with configurable `CORS_ALLOW_ORIGINS`. Retry-with-backoff on transient upstream

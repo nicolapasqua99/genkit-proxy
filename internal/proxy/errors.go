@@ -9,6 +9,8 @@ import (
 	"github.com/firebase/genkit/go/core"
 	"github.com/openai/openai-go"
 	"google.golang.org/genai"
+
+	"github.com/nicolapasqua99/genkit-proxy/internal/auth"
 )
 
 // ErrMissingCredentials indicates the request carried no usable bearer token.
@@ -44,6 +46,7 @@ const (
 	categoryTimeout                             // upstream deadline / cancel (504)
 	categoryNotFound                            // model or resource not found (404)
 	categoryUpstream                            // any other upstream failure (502)
+	categoryInternal                            // proxy-side failure, e.g. credential resolution (500)
 )
 
 // classify maps a Generator error to an errCategory. It prefers typed
@@ -56,6 +59,12 @@ func classify(err error) errCategory {
 		return categoryValidation
 	case errors.Is(err, ErrUnsupportedProvider):
 		return categoryUnsupported
+	case errors.Is(err, auth.ErrUnknownTenant):
+		return categoryUnauthenticated
+	case errors.Is(err, auth.ErrNoProviderSecret):
+		return categoryPermissionDenied
+	case errors.Is(err, auth.ErrSecretUnavailable):
+		return categoryInternal
 	}
 
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
@@ -117,6 +126,14 @@ func categoryForHTTP(code int) errCategory {
 // returned verbatim; upstream/provider errors are reduced to a generic message
 // so internal details are not leaked to the caller.
 func safeMessage(err error) string {
+	switch {
+	case errors.Is(err, auth.ErrUnknownTenant):
+		return "gateway authentication failed"
+	case errors.Is(err, auth.ErrNoProviderSecret):
+		return "no provider credential configured for tenant"
+	case errors.Is(err, auth.ErrSecretUnavailable):
+		return "internal credential resolution error"
+	}
 	switch classify(err) {
 	case categoryValidation, categoryUnsupported:
 		return err.Error()

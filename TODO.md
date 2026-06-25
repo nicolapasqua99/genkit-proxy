@@ -67,6 +67,15 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   deployed.
 - [x] **Env-configurable server timeouts** — `cmd/app/main.go` hardcodes the Read / Write /
   Idle timeouts; make them (and the per-request timeout above) env-driven, and validate `PORT`.
+- [ ] **Platform-agnostic container deployment** — the binary is already a portable container
+  (root `Dockerfile`, reads `$PORT`, drains on `SIGTERM`), but the release path is Cloud-Run-only:
+  `.github/workflows/release.yml` builds via Cloud Build (`gcloud run deploy --source .`) and
+  deploys solely to Cloud Run, publishing no image to a neutral registry. Make it deployable on any
+  container platform: publish the image to GHCR/Docker Hub on tag, and add platform-neutral run
+  artifacts (Kubernetes `Deployment`/`Service` manifests or a Helm chart, a `docker-compose`
+  example) and generic deployment docs, so Cloud Run is one target among many. The only inherently
+  GCP-coupled piece is the optional `vertexai` provider (ADC + `GOOGLE_CLOUD_*`); keep it opt-in and
+  document that the API-key providers (`googleai`/`openai`/`anthropic`) need no cloud platform.
 
 ## Tier 2 — Feature surface
 
@@ -133,8 +142,29 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   by `internal/proxy/policy_test.go` and handler tests. *Per-tenant* policy remains future work: it
   needs tenant identity, which depends on the decoupled gateway-auth item below (the bearer is
   currently an opaque provider key, so there is no tenant to key a policy on).
-- [ ] **Decoupled gateway auth** — authenticate the tenant with its own key and resolve the
-  provider key from Secret Manager, instead of the current raw pass-through.
+- [x] **Decoupled gateway auth** — opt-in (`GATEWAY_AUTH_ENABLED`, default off, preserving raw
+  pass-through). When enabled, the caller presents its own gateway key; `internal/auth`
+  authenticates it against a tenant table (`GATEWAY_AUTH_TENANTS`, keyed by the SHA-256 hash of
+  each gateway key so raw keys never sit in env) and resolves the provider key through a pluggable
+  `SecretSource`. The handler authenticates the tenant early (right after the bearer token, before
+  body decode and rate limiting) so an unknown key is rejected up front, and resolves the provider
+  key just before generation (the `GenkitCache` keys on the resolved key); resolution failures
+  classify as `401` (unknown tenant) / `403` (no provider secret) / `500` (secret store error). `vertexai` callers are still authenticated but
+  forward no key (ADC). Covered by `internal/auth/*_test.go` and `internal/proxy/credentials_test.go`.
+  *Follow-up:* the shipped `SecretSource` is the in-memory `StaticSecretSource` (fed by
+  `GATEWAY_SECRETS`); a Google Secret Manager source can replace it behind the same seam without
+  touching the tenant table. *Per-tenant* policy/rate-limiting keyed on the now-available tenant id
+  remains future work.
+- [ ] **Postgres-backed gateway-auth store** — implement the `SecretSource` seam
+  (`internal/auth/source.go`) against Postgres so secrets — and optionally the tenant table itself —
+  live in the DB instead of env, making `add tenant` / `rotate key` an `INSERT`/`UPDATE` with no
+  restart (the current `StaticSecretSource` + `GATEWAY_AUTH_TENANTS` require an env edit and
+  redeploy). A `provider_secrets(ref, secret, …)` table satisfies `Resolve` directly; if the tenant
+  table moves too, `auth.Resolver` queries Postgres (with a short TTL cache) rather than the
+  in-memory map. *Do not store provider keys as plaintext* — use envelope encryption (ciphertext in
+  PG, data key wrapped by Cloud KMS) or `pgcrypto`, or store only a Secret Manager pointer. Mind the
+  per-request DB round-trip (cache it) and rotation staleness vs the `GenkitCache` TTL. Adds a
+  `pgx` dependency, so `govulncheck` / `go-licenses` apply.
 - [x] **Rate limiting, CORS** — three-layer fixed-window rate limiting (global per-token,
   per-model/provider, per-stream) backed by in-memory or Redis (Sentinel / Cluster); CORS
   middleware with configurable `CORS_ALLOW_ORIGINS`. Retry-with-backoff on transient upstream

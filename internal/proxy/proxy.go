@@ -38,13 +38,25 @@ type Handler struct {
 	limiter   ratelimit.Limiter
 	rlCfg     HandlerRLConfig
 	allowlist *ModelAllowlist
+	resolver  CredentialResolver
 }
 
 // NewHandler returns a Handler that routes requests through generator.
 // Pass nil for lim and a zero HandlerRLConfig to disable per-request rate
 // limiting (the typical test setup). A nil allowlist permits every model.
+// Credential resolution defaults to pass-through; use WithCredentialResolver to
+// enable decoupled gateway auth.
 func NewHandler(generator Generator, lim ratelimit.Limiter, cfg HandlerRLConfig, allowlist *ModelAllowlist) *Handler {
-	return &Handler{generator: generator, limiter: lim, rlCfg: cfg, allowlist: allowlist}
+	return &Handler{generator: generator, limiter: lim, rlCfg: cfg, allowlist: allowlist, resolver: passthroughResolver{}}
+}
+
+// WithCredentialResolver sets the CredentialResolver used to authenticate the
+// tenant and resolve the provider key, returning the Handler for chaining. It
+// enables decoupled gateway auth; without it the handler passes the bearer token
+// straight through.
+func (handler *Handler) WithCredentialResolver(resolver CredentialResolver) *Handler {
+	handler.resolver = resolver
+	return handler
 }
 
 // ServeHTTP decodes a GenerateRequest, extracts the bearer credential, routes
@@ -58,6 +70,11 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, httpReq *http.Requ
 	apiKey, err := bearerToken(httpReq)
 	if err != nil {
 		writeError(writer, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	if err := handler.resolver.Authenticate(httpReq.Context(), apiKey); err != nil {
+		writeAuthError(writer, httpReq.Context(), err)
 		return
 	}
 
@@ -87,7 +104,22 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, httpReq *http.Requ
 		slot.name = req.ModelName
 	}
 
-	resp, err := handler.generator.Generate(httpReq.Context(), req, apiKey)
+	providerKey, err := handler.resolver.Resolve(httpReq.Context(), apiKey, req.ModelName)
+	if err != nil {
+		status := statusFor(err)
+		if classify(err) >= categoryUnauthenticated {
+			slog.ErrorContext(httpReq.Context(), "credential resolution failed",
+				"model", req.ModelName,
+				"status", status,
+				"err", err,
+				"request_id", requestIDFromContext(httpReq.Context()),
+			)
+		}
+		writeError(writer, status, safeMessage(err))
+		return
+	}
+
+	resp, err := handler.generator.Generate(httpReq.Context(), req, providerKey)
 	if err != nil {
 		status := statusFor(err)
 		if classify(err) >= categoryUnauthenticated {
@@ -140,6 +172,8 @@ func statusFor(err error) int {
 		return http.StatusGatewayTimeout
 	case categoryNotFound:
 		return http.StatusNotFound
+	case categoryInternal:
+		return http.StatusInternalServerError
 	default:
 		return http.StatusBadGateway
 	}
@@ -152,6 +186,19 @@ type errorBody struct {
 
 func writeError(writer http.ResponseWriter, status int, message string) {
 	writeJSON(writer, status, errorBody{Error: message})
+}
+
+// writeAuthError logs and writes the HTTP error for a failed gateway
+// authentication (run before the body is decoded, so no model is known). The
+// body carries only a safe, categorised message.
+func writeAuthError(writer http.ResponseWriter, ctx context.Context, err error) {
+	status := statusFor(err)
+	slog.ErrorContext(ctx, "gateway authentication failed",
+		"status", status,
+		"err", err,
+		"request_id", requestIDFromContext(ctx),
+	)
+	writeError(writer, status, safeMessage(err))
 }
 
 func writeJSON(writer http.ResponseWriter, status int, payload any) {

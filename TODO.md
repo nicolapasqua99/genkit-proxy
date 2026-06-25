@@ -146,6 +146,16 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   `GATEWAY_SECRETS`); a Google Secret Manager source can replace it behind the same seam without
   touching the tenant table. *Per-tenant* policy/rate-limiting keyed on the now-available tenant id
   remains future work.
+- [ ] **Postgres-backed gateway-auth store** — implement the `SecretSource` seam
+  (`internal/auth/source.go`) against Postgres so secrets — and optionally the tenant table itself —
+  live in the DB instead of env, making `add tenant` / `rotate key` an `INSERT`/`UPDATE` with no
+  restart (the current `StaticSecretSource` + `GATEWAY_AUTH_TENANTS` require an env edit and
+  redeploy). A `provider_secrets(ref, secret, …)` table satisfies `Resolve` directly; if the tenant
+  table moves too, `auth.Resolver` queries Postgres (with a short TTL cache) rather than the
+  in-memory map. *Do not store provider keys as plaintext* — use envelope encryption (ciphertext in
+  PG, data key wrapped by Cloud KMS) or `pgcrypto`, or store only a Secret Manager pointer. Mind the
+  per-request DB round-trip (cache it) and rotation staleness vs the `GenkitCache` TTL. Adds a
+  `pgx` dependency, so `govulncheck` / `go-licenses` apply.
 - [x] **Rate limiting, CORS** — three-layer fixed-window rate limiting (global per-token,
   per-model/provider, per-stream) backed by in-memory or Redis (Sentinel / Cluster); CORS
   middleware with configurable `CORS_ALLOW_ORIGINS`. Retry-with-backoff on transient upstream

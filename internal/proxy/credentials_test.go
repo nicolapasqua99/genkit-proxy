@@ -11,84 +11,31 @@ import (
 	"github.com/nicolapasqua99/genkit-proxy/internal/auth"
 )
 
-// fakeCredentialResolver maps a token to a provider key, or returns err.
+// fakeCredentialResolver authenticates only tokens in known, and resolves any
+// token to key (or returns resolveErr).
 type fakeCredentialResolver struct {
-	key string
-	err error
+	known      map[string]bool
+	key        string
+	resolveErr error
+}
+
+func (f fakeCredentialResolver) Authenticate(_ context.Context, token string) error {
+	if f.known != nil && !f.known[token] {
+		return auth.ErrUnknownTenant
+	}
+	return nil
 }
 
 func (f fakeCredentialResolver) Resolve(_ context.Context, _, _ string) (string, error) {
-	return f.key, f.err
-}
-
-func TestResolvingGeneratorGenerate(t *testing.T) {
-	t.Run("delegates with resolved key", func(t *testing.T) {
-		inner := &fakeGenerator{resp: GenerateResponse{Output: "ok"}}
-		gen := NewResolvingGenerator(inner, fakeCredentialResolver{key: "sk-real"})
-		req := GenerateRequest{ModelName: "openai/gpt-4o", UserMessage: "hi"}
-		if _, err := gen.Generate(context.Background(), req, "gw-token"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if inner.gotKey != "sk-real" {
-			t.Errorf("inner key = %q, want %q", inner.gotKey, "sk-real")
-		}
-	})
-
-	t.Run("resolver error short-circuits", func(t *testing.T) {
-		inner := &fakeGenerator{}
-		gen := NewResolvingGenerator(inner, fakeCredentialResolver{err: auth.ErrUnknownTenant})
-		req := GenerateRequest{ModelName: "openai/gpt-4o"}
-		_, err := gen.Generate(context.Background(), req, "gw-token")
-		if !errors.Is(err, auth.ErrUnknownTenant) {
-			t.Fatalf("err = %v, want ErrUnknownTenant", err)
-		}
-		if inner.gotRequest.ModelName != "" {
-			t.Error("inner generator should not have been called")
-		}
-	})
-}
-
-func TestResolvingGeneratorGenerateStream(t *testing.T) {
-	t.Run("delegates with resolved key", func(t *testing.T) {
-		inner := &fakeGenerator{streamDeltas: []string{"a", "b"}}
-		gen := NewResolvingGenerator(inner, fakeCredentialResolver{key: "sk-real"})
-		req := GenerateRequest{ModelName: "openai/gpt-4o"}
-		var got []string
-		_, err := gen.GenerateStream(context.Background(), req, "gw-token", func(d string) error {
-			got = append(got, d)
-			return nil
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if inner.gotKey != "sk-real" {
-			t.Errorf("inner key = %q, want %q", inner.gotKey, "sk-real")
-		}
-		if len(got) != 2 {
-			t.Errorf("deltas = %v, want 2", got)
-		}
-	})
-
-	t.Run("resolver error short-circuits", func(t *testing.T) {
-		inner := &fakeGenerator{streamDeltas: []string{"a"}}
-		gen := NewResolvingGenerator(inner, fakeCredentialResolver{err: auth.ErrNoProviderSecret})
-		req := GenerateRequest{ModelName: "openai/gpt-4o"}
-		called := false
-		_, err := gen.GenerateStream(context.Background(), req, "gw-token", func(string) error {
-			called = true
-			return nil
-		})
-		if !errors.Is(err, auth.ErrNoProviderSecret) {
-			t.Fatalf("err = %v, want ErrNoProviderSecret", err)
-		}
-		if called {
-			t.Error("inner stream should not have been called")
-		}
-	})
+	return f.key, f.resolveErr
 }
 
 func TestPassthroughResolver(t *testing.T) {
-	got, err := passthroughResolver{}.Resolve(context.Background(), "token", "openai/gpt-4o")
+	r := passthroughResolver{}
+	if err := r.Authenticate(context.Background(), "anything"); err != nil {
+		t.Errorf("Authenticate = %v, want nil", err)
+	}
+	got, err := r.Resolve(context.Background(), "token", "openai/gpt-4o")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -97,7 +44,8 @@ func TestPassthroughResolver(t *testing.T) {
 	}
 }
 
-func TestSecretCredentialResolver(t *testing.T) {
+func newTestCredentialResolver(t *testing.T) CredentialResolver {
+	t.Helper()
 	hash := func(s string) string {
 		sum := sha256.Sum256([]byte(s))
 		return hex.EncodeToString(sum[:])
@@ -111,8 +59,21 @@ func TestSecretCredentialResolver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	resolver := NewCredentialResolver(authResolver)
+	return NewCredentialResolver(authResolver)
+}
 
+func TestSecretCredentialResolverAuthenticate(t *testing.T) {
+	resolver := newTestCredentialResolver(t)
+	if err := resolver.Authenticate(context.Background(), "gw-key"); err != nil {
+		t.Errorf("Authenticate(known) = %v, want nil", err)
+	}
+	if err := resolver.Authenticate(context.Background(), "wrong"); !errors.Is(err, auth.ErrUnknownTenant) {
+		t.Errorf("Authenticate(unknown) = %v, want ErrUnknownTenant", err)
+	}
+}
+
+func TestSecretCredentialResolverResolve(t *testing.T) {
+	resolver := newTestCredentialResolver(t)
 	cases := []struct {
 		name    string
 		token   string

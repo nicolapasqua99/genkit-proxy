@@ -279,11 +279,16 @@ provider key is resolved from a secret store. This keeps provider credentials ou
 of clients and gives the proxy a tenant identity (the foundation for future
 per-tenant policy).
 
-It is implemented as a `ResolvingGenerator` (`internal/proxy/credentials.go`) that
-wraps the existing generator chain, so the `Handler`, middleware, rate limiting,
-and `GenkitCache` are untouched — rate limiting still keys on the inbound token
-(now the tenant key) and the cache keys on the *resolved* provider key. When the
-flag is off the wrapper is simply not installed (zero overhead).
+The `Handler` (`internal/proxy/credentials.go`, `proxy.go`) authenticates the
+tenant as early as possible — right after reading the bearer token, before the
+body is decoded and before the per-model/stream rate-limit checks — so an unknown
+gateway key is rejected `401` up front without parsing a body or resolving a
+secret. The provider key is resolved later, just before generation. The global
+per-token rate-limit middleware stays ahead of the handler as a cheap DoS guard;
+its buckets are already per-tenant because the bearer is the tenant key, and the
+`GenkitCache` keys on the *resolved* provider key. With `GATEWAY_AUTH_ENABLED`
+off, the handler uses a pass-through resolver (the bearer is the provider key),
+so behaviour is unchanged.
 
 ```mermaid
 flowchart TD

@@ -7,55 +7,26 @@ import (
 	"github.com/nicolapasqua99/genkit-proxy/internal/auth"
 )
 
-// CredentialResolver maps the inbound bearer token to the provider API key used
-// upstream for a model. The default behaviour is pass-through (the token is the
-// provider key); decoupled gateway auth swaps in a resolver that authenticates
-// the tenant and resolves the provider key from a secret store.
+// CredentialResolver decouples gateway authentication from upstream provider
+// credentials. Authenticate verifies the inbound gateway token belongs to a
+// known tenant (run early, before rate limiting and body work); Resolve maps the
+// token to the provider API key for a model (run just before generation). The
+// default is pass-through: every token authenticates and resolves to itself.
 type CredentialResolver interface {
+	Authenticate(ctx context.Context, token string) error
 	Resolve(ctx context.Context, token, modelName string) (string, error)
 }
 
-// passthroughResolver returns the inbound token unchanged, preserving the
-// proxy's raw pass-through behaviour.
+// passthroughResolver preserves the proxy's raw pass-through behaviour: the
+// bearer token is the provider key and every token is accepted.
 type passthroughResolver struct{}
+
+// Authenticate accepts any token.
+func (passthroughResolver) Authenticate(context.Context, string) error { return nil }
 
 // Resolve returns token unchanged.
 func (passthroughResolver) Resolve(_ context.Context, token, _ string) (string, error) {
 	return token, nil
-}
-
-// ResolvingGenerator wraps a Generator, replacing the inbound gateway token with
-// the provider API key produced by a CredentialResolver before delegating. It
-// composes outside RetryingGenerator so resolution runs once per request and a
-// resolution failure short-circuits without any upstream call.
-type ResolvingGenerator struct {
-	inner    Generator
-	resolver CredentialResolver
-}
-
-// NewResolvingGenerator returns a Generator that resolves the provider key via
-// resolver before delegating to inner.
-func NewResolvingGenerator(inner Generator, resolver CredentialResolver) Generator {
-	return &ResolvingGenerator{inner: inner, resolver: resolver}
-}
-
-// Generate resolves the provider key, then delegates to the inner generator.
-func (g *ResolvingGenerator) Generate(ctx context.Context, req GenerateRequest, token string) (GenerateResponse, error) {
-	key, err := g.resolver.Resolve(ctx, token, req.ModelName)
-	if err != nil {
-		return GenerateResponse{}, err
-	}
-	return g.inner.Generate(ctx, req, key)
-}
-
-// GenerateStream resolves the provider key, then delegates to the inner
-// generator's stream.
-func (g *ResolvingGenerator) GenerateStream(ctx context.Context, req GenerateRequest, token string, onChunk func(delta string) error) (GenerateResponse, error) {
-	key, err := g.resolver.Resolve(ctx, token, req.ModelName)
-	if err != nil {
-		return GenerateResponse{}, err
-	}
-	return g.inner.GenerateStream(ctx, req, key, onChunk)
 }
 
 // secretCredentialResolver bridges an auth.Resolver to CredentialResolver,
@@ -68,6 +39,15 @@ type secretCredentialResolver struct {
 // NewCredentialResolver returns a CredentialResolver backed by an auth.Resolver.
 func NewCredentialResolver(resolver *auth.Resolver) CredentialResolver {
 	return secretCredentialResolver{resolver: resolver}
+}
+
+// Authenticate reports whether token belongs to a known tenant, returning
+// auth.ErrUnknownTenant otherwise.
+func (s secretCredentialResolver) Authenticate(_ context.Context, token string) error {
+	if _, ok := s.resolver.Authenticate(token); !ok {
+		return auth.ErrUnknownTenant
+	}
+	return nil
 }
 
 // Resolve authenticates the tenant and resolves the provider key for the model.

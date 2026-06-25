@@ -137,10 +137,10 @@ and a single-turn `POST /v1/generate`. The items below are deferred, grouped by 
   pass-through). When enabled, the caller presents its own gateway key; `internal/auth`
   authenticates it against a tenant table (`GATEWAY_AUTH_TENANTS`, keyed by the SHA-256 hash of
   each gateway key so raw keys never sit in env) and resolves the provider key through a pluggable
-  `SecretSource`. Credential resolution is wired as a `ResolvingGenerator` that wraps the existing
-  generator chain (so the handler, rate limiting, and `GenkitCache` are untouched and now keyed on
-  the resolved provider key); resolution failures classify as `401` (unknown tenant) / `403` (no
-  provider secret) / `500` (secret store error). `vertexai` callers are still authenticated but
+  `SecretSource`. The handler authenticates the tenant early (right after the bearer token, before
+  body decode and rate limiting) so an unknown key is rejected up front, and resolves the provider
+  key just before generation (the `GenkitCache` keys on the resolved key); resolution failures
+  classify as `401` (unknown tenant) / `403` (no provider secret) / `500` (secret store error). `vertexai` callers are still authenticated but
   forward no key (ADC). Covered by `internal/auth/*_test.go` and `internal/proxy/credentials_test.go`.
   *Follow-up:* the shipped `SecretSource` is the in-memory `StaticSecretSource` (fed by
   `GATEWAY_SECRETS`); a Google Secret Manager source can replace it behind the same seam without

@@ -439,3 +439,51 @@ func TestSafeMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestHandlerGatewayAuth(t *testing.T) {
+	const body = `{"modelName":"openai/gpt-4o","userMessage":"hi"}`
+	known := map[string]bool{"good": true}
+
+	serve := func(t *testing.T, gen *fakeGenerator, resolver CredentialResolver, token string) *httptest.ResponseRecorder {
+		t.Helper()
+		h := NewHandler(gen, nil, HandlerRLConfig{}, nil).WithCredentialResolver(resolver)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/generate", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	t.Run("unknown tenant rejected before generation", func(t *testing.T) {
+		gen := &fakeGenerator{resp: GenerateResponse{Output: "ok"}}
+		rec := serve(t, gen, fakeCredentialResolver{known: known}, "bad")
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want 401", rec.Code)
+		}
+		if gen.gotRequest.ModelName != "" {
+			t.Error("generator should not be called for an unknown tenant")
+		}
+	})
+
+	t.Run("known tenant uses resolved provider key", func(t *testing.T) {
+		gen := &fakeGenerator{resp: GenerateResponse{Output: "ok"}}
+		rec := serve(t, gen, fakeCredentialResolver{known: known, key: "sk-real"}, "good")
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want 200", rec.Code)
+		}
+		if gen.gotKey != "sk-real" {
+			t.Errorf("generator key = %q, want %q", gen.gotKey, "sk-real")
+		}
+	})
+
+	t.Run("resolution error mapped to status, generator not called", func(t *testing.T) {
+		gen := &fakeGenerator{}
+		rec := serve(t, gen, fakeCredentialResolver{known: known, resolveErr: auth.ErrNoProviderSecret}, "good")
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", rec.Code)
+		}
+		if gen.gotRequest.ModelName != "" {
+			t.Error("generator should not be called when resolution fails")
+		}
+	})
+}

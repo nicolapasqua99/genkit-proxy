@@ -24,6 +24,11 @@ func (handler *Handler) ServeStream(writer http.ResponseWriter, httpReq *http.Re
 		return
 	}
 
+	if err := handler.resolver.Authenticate(httpReq.Context(), apiKey); err != nil {
+		writeAuthError(writer, httpReq.Context(), err)
+		return
+	}
+
 	httpReq.Body = http.MaxBytesReader(writer, httpReq.Body, maxRequestBytes)
 	dec := json.NewDecoder(httpReq.Body)
 	dec.DisallowUnknownFields()
@@ -72,6 +77,21 @@ func (handler *Handler) ServeStream(writer http.ResponseWriter, httpReq *http.Re
 		slot.name = req.ModelName
 	}
 
+	providerKey, err := handler.resolver.Resolve(ctx, apiKey, req.ModelName)
+	if err != nil {
+		status := statusFor(err)
+		if classify(err) >= categoryUnauthenticated {
+			slog.ErrorContext(ctx, "credential resolution failed",
+				"model", req.ModelName,
+				"status", status,
+				"err", err,
+				"request_id", requestIDFromContext(ctx),
+			)
+		}
+		writeError(writer, status, safeMessage(err))
+		return
+	}
+
 	controller := http.NewResponseController(writer)
 	// A stream can outlast the configured WriteTimeout; rely on the per-request
 	// generation timeout instead. Test recorders return ErrNotSupported — ignore.
@@ -94,7 +114,7 @@ func (handler *Handler) ServeStream(writer http.ResponseWriter, httpReq *http.Re
 		return controller.Flush()
 	}
 
-	final, err := handler.generator.GenerateStream(ctx, req, apiKey, onChunk)
+	final, err := handler.generator.GenerateStream(ctx, req, providerKey, onChunk)
 	if err != nil {
 		if !started {
 			status := statusFor(err)

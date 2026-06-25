@@ -82,10 +82,15 @@ func main() {
 		defer cache.Close()
 	}
 
-	generator := proxy.NewRetryingGenerator(
-		proxy.NewGenkitGenerator(cfg.generateTimeout, cache),
-		cfg.retryMaxAttempts,
-		cfg.retryBaseBackoff,
+	handler := proxy.NewHandler(
+		proxy.NewRetryingGenerator(
+			proxy.NewGenkitGenerator(cfg.generateTimeout, cache),
+			cfg.retryMaxAttempts,
+			cfg.retryBaseBackoff,
+		),
+		lim,
+		cfg.handlerRateLimitConfig(),
+		proxy.NewModelAllowlist(cfg.modelAllowlist),
 	)
 	if cfg.gatewayAuthEnabled {
 		resolver, err := buildCredentialResolver(cfg)
@@ -93,15 +98,8 @@ func main() {
 			slog.Error("gateway auth config error", "err", err)
 			os.Exit(1)
 		}
-		generator = proxy.NewResolvingGenerator(generator, resolver)
+		handler.WithCredentialResolver(resolver)
 	}
-
-	handler := proxy.NewHandler(
-		generator,
-		lim,
-		cfg.handlerRateLimitConfig(),
-		proxy.NewModelAllowlist(cfg.modelAllowlist),
-	)
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/generate", handler)

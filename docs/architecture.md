@@ -26,11 +26,12 @@ graph LR
     proxy -->|"vertexai/* (ADC)"| vertex["Vertex AI"]
 ```
 
-The caller speaks one request/response shape regardless of provider. For the
-API-key providers the bearer token is passed straight through to the upstream
-provider; nothing is configured server-side. `vertexai` is the exception: it
-authenticates with the proxy's own Google Cloud credentials (ADC) and its bearer
-is a gate only, not forwarded.
+The caller speaks one request/response shape regardless of provider. By default,
+for the API-key providers the bearer token is passed straight through to the
+upstream provider; nothing is configured server-side. `vertexai` is the
+exception: it authenticates with the proxy's own Google Cloud credentials (ADC)
+and its bearer is a gate only, not forwarded. The bearer can instead be a
+decoupled **gateway key** — see [Gateway auth (optional)](#gateway-auth-optional).
 
 ## Components
 
@@ -268,6 +269,45 @@ flowchart TD
 | OpenAI | `openai` | `plugins/compat_oai/openai` | per-request API key |
 | Anthropic | `anthropic` | `plugins/compat_oai/anthropic` | per-request API key |
 | Vertex AI | `vertexai` | `plugins/googlegenai` | GCP ADC (`GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION`); bearer not forwarded |
+
+## Gateway auth (optional)
+
+By default the proxy is a raw pass-through: the bearer token *is* the provider
+key. Setting `GATEWAY_AUTH_ENABLED=true` decouples the two — the caller presents
+its own **gateway key**, the proxy authenticates the tenant, and the real
+provider key is resolved from a secret store. This keeps provider credentials out
+of clients and gives the proxy a tenant identity (the foundation for future
+per-tenant policy).
+
+The `Handler` (`internal/proxy/credentials.go`, `proxy.go`) authenticates the
+tenant as early as possible — right after reading the bearer token, before the
+body is decoded and before the per-model/stream rate-limit checks — so an unknown
+gateway key is rejected `401` up front without parsing a body or resolving a
+secret. The provider key is resolved later, just before generation. The global
+per-token rate-limit middleware stays ahead of the handler as a cheap DoS guard;
+its buckets are already per-tenant because the bearer is the tenant key, and the
+`GenkitCache` keys on the *resolved* provider key. With `GATEWAY_AUTH_ENABLED`
+off, the handler uses a pass-through resolver (the bearer is the provider key),
+so behaviour is unchanged.
+
+```mermaid
+flowchart TD
+    in(["Bearer gateway-key + model"]) --> auth["auth.Resolver.Authenticate<br/>sha256(key) → tenant"]
+    auth -->|unknown| u401["ErrUnknownTenant → 401"]
+    auth -->|known, vertexai| vadc["authenticated; no key forwarded (ADC)"]
+    auth -->|known| ref{"tenant has secret<br/>ref for provider?"}
+    ref -->|no| f403["ErrNoProviderSecret → 403"]
+    ref -->|yes| src["SecretSource.Resolve(ref)"]
+    src -->|missing| e500["ErrSecretUnavailable → 500"]
+    src -->|ok| key(["provider API key → inner generator"])
+```
+
+The tenant table (`GATEWAY_AUTH_TENANTS`) is keyed by the SHA-256 hash of each
+gateway key, so raw keys never live in the proxy's environment. The
+`SecretSource` seam (`internal/auth/source.go`) is satisfied today by the
+in-memory `StaticSecretSource` (fed by `GATEWAY_SECRETS`); a Google Secret
+Manager source can replace it without touching the tenant table. See the
+[configuration table](../README.md#configuration) for the env-var formats.
 
 ## Process lifecycle
 

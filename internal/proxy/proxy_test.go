@@ -14,6 +14,8 @@ import (
 	"github.com/firebase/genkit/go/core"
 	"github.com/openai/openai-go"
 	"google.golang.org/genai"
+
+	"github.com/nicolapasqua99/genkit-proxy/internal/auth"
 )
 
 // fakeGenerator records what it was called with and returns canned results.
@@ -338,6 +340,9 @@ func TestStatusFor(t *testing.T) {
 		{"openai error 403", openaiApiErrForbidden, http.StatusForbidden},
 		{"openai error 429", openaiApiErr429, http.StatusTooManyRequests},
 		{"unknown error", errors.New("boom"), http.StatusBadGateway},
+		{"auth unknown tenant", auth.ErrUnknownTenant, http.StatusUnauthorized},
+		{"auth no provider secret", auth.ErrNoProviderSecret, http.StatusForbidden},
+		{"auth secret unavailable", auth.ErrSecretUnavailable, http.StatusInternalServerError},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -403,6 +408,24 @@ func TestSafeMessage(t *testing.T) {
 			wantContains: "upstream provider error",
 			wantAbsent:   secret,
 		},
+		{
+			name:         "unknown tenant uses gateway message",
+			err:          fmt.Errorf("tenant=%s: %w", secret, auth.ErrUnknownTenant),
+			wantContains: "gateway authentication failed",
+			wantAbsent:   secret,
+		},
+		{
+			name:         "no provider secret uses safe message",
+			err:          fmt.Errorf("ref=%s: %w", secret, auth.ErrNoProviderSecret),
+			wantContains: "no provider credential",
+			wantAbsent:   secret,
+		},
+		{
+			name:         "secret unavailable uses safe message",
+			err:          fmt.Errorf("ref=%s: %w", secret, auth.ErrSecretUnavailable),
+			wantContains: "internal credential resolution error",
+			wantAbsent:   secret,
+		},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -415,4 +438,52 @@ func TestSafeMessage(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandlerGatewayAuth(t *testing.T) {
+	const body = `{"modelName":"openai/gpt-4o","userMessage":"hi"}`
+	known := map[string]bool{"good": true}
+
+	serve := func(t *testing.T, gen *fakeGenerator, resolver CredentialResolver, token string) *httptest.ResponseRecorder {
+		t.Helper()
+		h := NewHandler(gen, nil, HandlerRLConfig{}, nil).WithCredentialResolver(resolver)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/generate", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	t.Run("unknown tenant rejected before generation", func(t *testing.T) {
+		gen := &fakeGenerator{resp: GenerateResponse{Output: "ok"}}
+		rec := serve(t, gen, fakeCredentialResolver{known: known}, "bad")
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want 401", rec.Code)
+		}
+		if gen.gotRequest.ModelName != "" {
+			t.Error("generator should not be called for an unknown tenant")
+		}
+	})
+
+	t.Run("known tenant uses resolved provider key", func(t *testing.T) {
+		gen := &fakeGenerator{resp: GenerateResponse{Output: "ok"}}
+		rec := serve(t, gen, fakeCredentialResolver{known: known, key: "sk-real"}, "good")
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want 200", rec.Code)
+		}
+		if gen.gotKey != "sk-real" {
+			t.Errorf("generator key = %q, want %q", gen.gotKey, "sk-real")
+		}
+	})
+
+	t.Run("resolution error mapped to status, generator not called", func(t *testing.T) {
+		gen := &fakeGenerator{}
+		rec := serve(t, gen, fakeCredentialResolver{known: known, resolveErr: auth.ErrNoProviderSecret}, "good")
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", rec.Code)
+		}
+		if gen.gotRequest.ModelName != "" {
+			t.Error("generator should not be called when resolution fails")
+		}
+	})
 }
